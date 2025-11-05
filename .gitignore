@@ -21,3 +21,4 @@ ecto_backup-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+/local/

@@ -6,23 +6,45 @@ defmodule EctoBackup.MixProject do
       app: :ecto_backup,
       version: "0.1.0",
       elixir: "~> 1.18",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      aliases: aliases(),
+      test_coverage: test_coverage()
     ]
   end
 
-  # Run "mix help compile.app" to learn about applications.
-  def application do
+  # Specifies which paths to compile per environment.
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
+  defp test_coverage do
     [
-      extra_applications: [:logger]
+      ignore_modules: [
+        EctoBackup.TestPGRepo,
+        EctoBackup.UnsupportedAdapter,
+        EctoBackup.UnsupportedRepo
+      ]
     ]
   end
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      {:briefly, "~> 0.5.0"},
+      {:crontab, "~> 1.2.0"},
+      {:postgrex, ">= 0.0.0", only: [:dev, :test]},
+      {:ecto_sql, "~> 3.13", only: [:dev, :test]},
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false, warn_if_outdated: true},
+      {:mix_test_interactive, "~> 5.0", only: :dev, runtime: false},
+      {:patch, "~> 0.16.0", only: [:test]}
+    ]
+  end
+
+  defp aliases do
+    [
+      testi: ["test.interactive"],
+      precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]
     ]
   end
 end
