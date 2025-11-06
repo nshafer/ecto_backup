@@ -58,9 +58,9 @@ defmodule EctoBackup.Adapters.Postgres do
     with(
       {:ok, cmd} <- pg_dump_cmd(repo_config),
       {:ok, args} <- pg_dump_args(repo_config, backup_file),
-      env = pg_env(repo_config),
-      env = create_pgpass_file(env, repo_config),
-      table_count = get_table_count(repo)
+      {:ok, env} = pg_env(repo_config),
+      {:ok, env} = create_pgpass_file(env, repo_config),
+      {:ok, table_count} = get_table_count(repo)
     ) do
       try do
         EctoBackup.Adapter.call_update(:started, options, repo, %{
@@ -151,12 +151,26 @@ defmodule EctoBackup.Adapters.Postgres do
   end
 
   defp get_table_count(repo) do
-    query =
-      from t in "pg_tables",
-        where: t.schemaname != "information_schema" and not like(t.schemaname, "pg_%"),
-        select: count(t.tablename)
+    fun = fn repo ->
+      query =
+        from t in "pg_tables",
+          where: t.schemaname != "information_schema" and not like(t.schemaname, "pg_%"),
+          select: count(t.tablename)
 
-    repo.one(query, log: false)
+      repo.one(query, log: false)
+    end
+
+    case Ecto.Migrator.with_repo(repo, fun) do
+      {:ok, ret, []} ->
+        {:ok, ret}
+
+      {:ok, ret, apps} ->
+        IO.puts("Table count apps started: #{inspect(apps)}")
+        {:ok, ret}
+
+      {:error, _} ->
+        {:ok, nil}
+    end
   end
 
   defp pg_dump_cmd(repo_config) do
@@ -180,12 +194,18 @@ defmodule EctoBackup.Adapters.Postgres do
   end
 
   defp pg_env(repo_config) do
-    %{
-      "PGHOST" => repo_config[:socket] || repo_config[:socket_dir] || repo_config[:hostname],
-      "PGPORT" => repo_config[:port] || "5432",
-      "PGUSER" => repo_config[:username],
-      "PGDATABASE" => repo_config[:database]
-    }
+    if is_binary(repo_config[:database]) and repo_config[:database] != "" do
+      {:ok,
+       %{
+         "PGDATABASE" => repo_config[:database],
+         "PGHOST" => repo_config[:socket] || repo_config[:socket_dir] || repo_config[:hostname],
+         "PGPORT" => repo_config[:port] || "5432",
+         "PGUSER" => repo_config[:username],
+         "PGOPTIONS" => repo_config[:options] || nil
+       }}
+    else
+      {:error, :database_not_specified}
+    end
   end
 
   defp port_env(env) do
@@ -197,20 +217,23 @@ defmodule EctoBackup.Adapters.Postgres do
   end
 
   defp create_pgpass_file(env, repo_config) do
-    password = repo_config[:password]
+    case repo_config[:password] do
+      nil -> {:ok, env}
+      "" -> {:ok, env}
+      password when is_binary(password) -> do_create_pgpass_file(password, env)
+      _ -> {:error, :invalid_password_value}
+    end
+  end
 
-    if is_binary(password) and password != "" do
-      Temp.track!()
-
-      {:ok, pgpass_path} =
-        Temp.open("ecto_backup_pgpass", fn file ->
-          IO.write(file, "*:*:*:*:#{password}\n")
-        end)
-
-      File.chmod!(pgpass_path, 0o600)
-      Map.put(env, "PGPASSFILE", pgpass_path)
-    else
-      env
+  def do_create_pgpass_file(password, env) do
+    with(
+      {:ok, _pid} <- Temp.track(),
+      {:ok, file, pgpass_path} <- Temp.open("ecto_backup_pgpass"),
+      :ok <- IO.write(file, "*:*:*:*:#{password}\n"),
+      :ok <- File.close(file),
+      :ok <- File.chmod(pgpass_path, 0o600)
+    ) do
+      {:ok, Map.put(env, "PGPASSFILE", pgpass_path)}
     end
   end
 

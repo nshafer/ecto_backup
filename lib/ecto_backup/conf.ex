@@ -58,33 +58,39 @@ defmodule EctoBackup.Conf do
   end
 
   def get_repo_configs(repos) when is_list(repos) do
-    repo_configs =
-      for repo <- repos do
-        {repo, override_config} =
-          case repo do
-            {repo_module, config} when is_atom(repo_module) ->
-              {repo_module, Map.new(config)}
+    {:ok, Enum.map(repos, &merge_repo_configs/1)}
+  end
 
-            repo_module when is_atom(repo_module) ->
-              {repo_module, %{}}
+  def get_repo_configs(other) do
+    raise ArgumentError,
+          "invalid repos specification, expected a list of repo modules " <>
+            "or {repo, config} tuples, got: #{inspect(other)}"
+  end
 
-            other ->
-              raise ArgumentError,
-                    "invalid repo specification, expected atom or {atom, keyword}, got: #{inspect(other)}"
-          end
+  defp merge_repo_configs(repo_spec) do
+    {repo, override_config} =
+      case repo_spec do
+        {repo_module, config} when is_atom(repo_module) ->
+          {repo_module, Map.new(config)}
 
-        repo_config = repo_config(repo)
-        app_repo_config = Application.get_env(:ecto_backup, repo, %{}) |> Map.new()
+        repo_module when is_atom(repo_module) ->
+          {repo_module, %{}}
 
-        merged_config =
-          repo_config
-          |> Map.merge(app_repo_config)
-          |> Map.merge(override_config)
-
-        {repo, merged_config}
+        other ->
+          raise ArgumentError,
+                "invalid repo specification, expected atom " <>
+                  "or {atom, keyword}, got: #{inspect(other)}"
       end
 
-    {:ok, repo_configs}
+    repo_config = repo_config(repo)
+    app_repo_config = Application.get_env(:ecto_backup, repo, %{}) |> Map.new()
+
+    merged_config =
+      repo_config
+      |> Map.merge(app_repo_config)
+      |> Map.merge(override_config)
+
+    {repo, merged_config}
   end
 
   defp repo_config(repo) do
