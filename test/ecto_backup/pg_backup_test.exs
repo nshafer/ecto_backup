@@ -13,7 +13,8 @@ defmodule EctoBackup.PGBackupTest do
     TestPGRepo.insert_test_data(10)
     on_exit(fn -> TestPGRepo.drop_db() end)
 
-    backup_dir = Briefly.create!(type: :directory, prefix: "ecto_backup_test")
+    Temp.track!()
+    backup_dir = Temp.mkdir!(prefix: "ecto_backup_test_")
     # backup_dir = "local/backups"
 
     {:ok, backup_dir: backup_dir}

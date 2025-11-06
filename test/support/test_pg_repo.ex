@@ -25,8 +25,11 @@ defmodule EctoBackup.TestPGRepo do
 
   def create_default_tables() do
     Ecto.Migrator.with_repo(__MODULE__, fn _repo ->
-      query = """
-        CREATE TABLE "test_table" (
+      query = ~S[DROP TABLE IF EXISTS "test_table"]
+      query!(query, [], log: false)
+
+      query = ~S[
+        CREATE TABLE IF NOT EXISTS "test_table" (
           "id" bigserial,
           "foo" varchar(255),
           "bar" integer,
@@ -35,7 +38,7 @@ defmodule EctoBackup.TestPGRepo do
           "updated_at" timestamp(0) NOT NULL,
           PRIMARY KEY ("id")
         )
-      """
+      ]
 
       query!(query, [], log: false)
     end)

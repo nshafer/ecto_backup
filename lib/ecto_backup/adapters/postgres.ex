@@ -57,26 +57,34 @@ defmodule EctoBackup.Adapters.Postgres do
   def backup(repo, repo_config, backup_file, options) do
     with(
       {:ok, cmd} <- pg_dump_cmd(repo_config),
-      args <- pg_dump_args(repo_config, backup_file),
+      {:ok, args} <- pg_dump_args(repo_config, backup_file),
       env = pg_env(repo_config),
+      env = create_pgpass_file(env, repo_config),
       table_count = get_table_count(repo)
     ) do
-      EctoBackup.Adapter.call_update(:started, options, repo, %{
-        repo_config: repo_config,
-        table_count: table_count
-      })
+      try do
+        EctoBackup.Adapter.call_update(:started, options, repo, %{
+          repo_config: repo_config,
+          table_count: table_count
+        })
 
-      case run_cmd(cmd, args, env, repo, table_count, options) do
-        0 ->
-          EctoBackup.Adapter.call_update(:completed, options, repo, %{result: {:ok, backup_file}})
-          {:ok, backup_file}
+        case run_cmd(cmd, args, env, repo, table_count, options) do
+          0 ->
+            EctoBackup.Adapter.call_update(:completed, options, repo, %{
+              result: {:ok, backup_file}
+            })
 
-        exit_status ->
-          EctoBackup.Adapter.call_update(:completed, options, repo, %{
-            result: {:error, {:exit_status, exit_status}}
-          })
+            {:ok, backup_file}
 
-          {:error, {:exit_status, exit_status}}
+          exit_status ->
+            EctoBackup.Adapter.call_update(:completed, options, repo, %{
+              result: {:error, {:exit_status, exit_status}}
+            })
+
+            {:error, {:exit_status, exit_status}}
+        end
+      after
+        cleanup_pgpass_file(env)
       end
     end
   end
@@ -166,17 +174,16 @@ defmodule EctoBackup.Adapters.Postgres do
     if Enum.any?(args, fn arg -> arg in ["-f", "--file"] end) do
       {:error, :pg_dump_args_cannot_include_file_arg}
     else
-      args ++ ["--file", backup_file]
+      # Always add `--no-password` to avoid password prompt
+      {:ok, args ++ ["--no-password", "--file", backup_file]}
     end
   end
 
   defp pg_env(repo_config) do
-    # TODO: Handle password via .pgpass file and set PGPASSFILE env var
     %{
       "PGHOST" => repo_config[:socket] || repo_config[:socket_dir] || repo_config[:hostname],
       "PGPORT" => repo_config[:port] || "5432",
       "PGUSER" => repo_config[:username],
-      "PGPASSWORD" => repo_config[:password],
       "PGDATABASE" => repo_config[:database]
     }
   end
@@ -188,6 +195,30 @@ defmodule EctoBackup.Adapters.Postgres do
       other -> raise ArgumentError, "Invalid env key-value: #{inspect(other)}"
     end)
   end
+
+  defp create_pgpass_file(env, repo_config) do
+    password = repo_config[:password]
+
+    if is_binary(password) and password != "" do
+      Temp.track!()
+
+      {:ok, pgpass_path} =
+        Temp.open("ecto_backup_pgpass", fn file ->
+          IO.write(file, "*:*:*:*:#{password}\n")
+        end)
+
+      File.chmod!(pgpass_path, 0o600)
+      Map.put(env, "PGPASSFILE", pgpass_path)
+    else
+      env
+    end
+  end
+
+  defp cleanup_pgpass_file(%{"PGPASSFILE" => pgpass_path} = _env) do
+    File.rm_rf(pgpass_path)
+  end
+
+  defp cleanup_pgpass_file(_env), do: :ok
 
   def valid_backup_file?(backup_file, expected_tables, opts \\ []) do
     with(

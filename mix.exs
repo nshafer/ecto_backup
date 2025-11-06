@@ -31,7 +31,7 @@ defmodule EctoBackup.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:briefly, "~> 0.5.0"},
+      {:temp, "~> 0.4"},
       {:crontab, "~> 1.2.0"},
       {:postgrex, ">= 0.0.0", only: [:dev, :test]},
       {:ecto_sql, "~> 3.13", only: [:dev, :test]},
