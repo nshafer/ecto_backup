@@ -127,7 +127,7 @@ defmodule EctoBackup.Adapters.Postgres do
 
         EctoBackup.Adapter.call_update(:message, options, repo, %{level: level, message: line})
 
-        if String.starts_with?(line, "pg_dump: dumping contents of table") do
+        if table_count && String.starts_with?(line, "pg_dump: dumping contents of table") do
           percent = table_num / table_count
           EctoBackup.Adapter.call_update(:progress, options, repo, %{percent: percent})
           receive_output(port, repo, table_num + 1, table_count, options, [])
