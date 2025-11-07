@@ -57,14 +57,8 @@ defmodule EctoBackup.Conf do
     end
   end
 
-  def get_repo_configs(repos) when is_list(repos) do
-    {:ok, Enum.map(repos, &merge_repo_configs/1)}
-  end
-
-  def get_repo_configs(other) do
-    raise ArgumentError,
-          "invalid repos specification, expected a list of repo modules " <>
-            "or {repo, config} tuples, got: #{inspect(other)}"
+  def get_repo_configs(repo_specs) when is_list(repo_specs) do
+    {:ok, Enum.map(repo_specs, &merge_repo_configs/1)}
   end
 
   defp merge_repo_configs(repo_spec) do

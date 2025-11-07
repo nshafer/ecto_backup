@@ -31,10 +31,11 @@ defmodule EctoBackup.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:ecto_sql, "~> 3.2"},
+      {:telemetry, "~> 0.4 or ~> 1.0"},
       {:temp, "~> 0.4"},
       {:crontab, "~> 1.2.0"},
       {:postgrex, ">= 0.0.0", only: [:dev, :test]},
-      {:ecto_sql, "~> 3.13", only: [:dev, :test]},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false, warn_if_outdated: true},
       {:mix_test_interactive, "~> 5.0", only: :dev, runtime: false},
       {:patch, "~> 0.16.0", only: [:test]}

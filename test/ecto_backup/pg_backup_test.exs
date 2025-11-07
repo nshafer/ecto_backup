@@ -56,40 +56,31 @@ defmodule EctoBackup.PGBackupTest do
       assert EctoBackup.Adapters.Postgres.valid_backup_file?(backup_file, ["test_table"])
     end
 
-    test "update function callback is called during backup", %{backup_dir: backup_dir} do
-      test_pid = self()
+    test "telemetry events are emitted during backup", %{backup_dir: backup_dir} do
+      ref =
+        :telemetry_test.attach_event_handlers(self(), [
+          [:ecto_backup, :backup, :start],
+          [:ecto_backup, :backup, :stop],
+          [:ecto_backup, :backup, :repo, :start],
+          [:ecto_backup, :backup, :repo, :stop],
+          [:ecto_backup, :backup, :repo, :progress],
+          [:ecto_backup, :backup, :repo, :message]
+        ])
 
-      update_fn = fn type, _repo, _data ->
-        send(test_pid, {:update_called, type})
-      end
-
-      opts = [repos: [TestPGRepo], backup_dir: backup_dir, update: update_fn]
+      opts = [repos: [TestPGRepo], backup_dir: backup_dir]
       assert [{:ok, backup_file}] = EctoBackup.backup(opts)
       assert EctoBackup.Adapters.Postgres.valid_backup_file?(backup_file, ["test_table"])
 
-      assert_received {:update_called, :started}
-      assert_received {:update_called, :message}
-      assert_received {:update_called, :progress}
-      assert_received {:update_called, :completed}
-    end
+      assert_received {[:ecto_backup, :backup, :start], ^ref, _measurements, _metadata}
+      assert_received {[:ecto_backup, :backup, :stop], ^ref, _measurements, _metadata}
+      assert_received {[:ecto_backup, :backup, :repo, :start], ^ref, _measurements, %{repo: _}}
+      assert_received {[:ecto_backup, :backup, :repo, :stop], ^ref, _measurements, %{repo: _}}
 
-    def update_callback(type, _repo, _data, test_pid) do
-      send(test_pid, {:update_called, type})
-    end
+      assert_received {[:ecto_backup, :backup, :repo, :progress], ^ref,
+                       %{completed: _, total: _, percent: _}, %{repo: _}}
 
-    test "update mfa callback is called during backup", %{backup_dir: backup_dir} do
-      test_pid = self()
-
-      update_mfa = {__MODULE__, :update_callback, [test_pid]}
-
-      opts = [repos: [TestPGRepo], backup_dir: backup_dir, update: update_mfa]
-      assert [{:ok, backup_file}] = EctoBackup.backup(opts)
-      assert EctoBackup.Adapters.Postgres.valid_backup_file?(backup_file, ["test_table"])
-
-      assert_received {:update_called, :started}
-      assert_received {:update_called, :message}
-      assert_received {:update_called, :progress}
-      assert_received {:update_called, :completed}
+      assert_received {[:ecto_backup, :backup, :repo, :message], ^ref, _measurements,
+                       %{repo: _, level: _, message: _}}
     end
 
     test "errors if given invalid database name", %{backup_dir: backup_dir} do

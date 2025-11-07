@@ -30,8 +30,8 @@ defmodule EctoBackup.Adapters.Postgres do
   ## A note on default arguments
   - The `--verbose` argument is required for progress and feedback during backup and restore
     operations.
-  - The `--format=c` argument for `pg_dump` creates a custom-format dump file, which is suitable
-    for use with `pg_restore`.
+  - The `--format=c` argument for `pg_dump` creates a custom-format dump file, which is the most
+    flexible format, and compressed by default.
   - The `--no-owner` argument prevents ownership information from being included in the dump,
     which can be useful when restoring to a different database or user.
   - The `--clean` argument for `pg_restore` ensures that existing database objects are dropped
@@ -39,15 +39,14 @@ defmodule EctoBackup.Adapters.Postgres do
   - The `--no-acl` argument prevents access control lists from being restored, which can help
     avoid permission issues during restore.
 
-  ## Extra `:update` information:
-  During backup and restore operations, additional data is provided in the update callbacks:
+  ## Telemetry Events
+  During backup and restore operations, the following telemetry events are emitted:
+    - `[:ecto_backup, :backup, :repo, :progress]` - Emitted periodically during backup to report
+      progress. Measurements include `:completed`, `:total`, and `:percent`.
+    - `[:ecto_backup, :backup, :repo, :message]` - Emitted for informational, warning, or error
+      messages from the backup process. Metadata includes `:level` and `:message`.
 
-    - For `:started` updates, the `:table_count` key indicates the number of tables in the
-      database being backed up or restored.
-    - For `:progress` updates, the `:percent` key indicates the estimated completion percentage
-      of the operation, based on the number of tables processed so far. Large tables may cause
-      large jumps in percentage as they are completed.
-
+  All telemetry events include the `:repo` in their metadata for context.
   """
 
   @behaviour EctoBackup.Adapter
@@ -63,25 +62,9 @@ defmodule EctoBackup.Adapters.Postgres do
       {:ok, table_count} = get_table_count(repo)
     ) do
       try do
-        EctoBackup.Adapter.call_update(:started, options, repo, %{
-          repo_config: repo_config,
-          table_count: table_count
-        })
-
         case run_cmd(cmd, args, env, repo, table_count, options) do
-          0 ->
-            EctoBackup.Adapter.call_update(:completed, options, repo, %{
-              result: {:ok, backup_file}
-            })
-
-            {:ok, backup_file}
-
-          exit_status ->
-            EctoBackup.Adapter.call_update(:completed, options, repo, %{
-              result: {:error, {:exit_status, exit_status}}
-            })
-
-            {:error, {:exit_status, exit_status}}
+          0 -> {:ok, backup_file}
+          exit_status -> {:error, {:exit_status, exit_status}}
         end
       after
         cleanup_pgpass_file(env)
@@ -95,7 +78,7 @@ defmodule EctoBackup.Adapters.Postgres do
   #   dbg(options)
   # end
 
-  defp run_cmd(cmd, args, env, repo, table_count, options) do
+  defp run_cmd(cmd, args, env, repo, total, options) do
     port =
       Port.open({:spawn_executable, cmd}, [
         :binary,
@@ -107,32 +90,23 @@ defmodule EctoBackup.Adapters.Postgres do
         {:line, 1024}
       ])
 
-    receive_output(port, repo, 0, table_count, options, [])
+    receive_output(port, repo, 0, total, options, [])
   end
 
-  defp receive_output(port, repo, table_num, table_count, options, buffer) do
+  defp receive_output(port, repo, completed, total, options, buffer) do
     receive do
       {^port, {:data, {:noeol, data}}} ->
-        receive_output(port, repo, table_num, table_count, options, [data | buffer])
+        receive_output(port, repo, completed, total, options, [data | buffer])
 
       {^port, {:data, {:eol, data}}} ->
         line = [data | buffer] |> Enum.reverse() |> IO.iodata_to_binary()
+        emit_message_event(repo, line)
 
-        level =
-          cond do
-            String.contains?(line, "error:") -> :error
-            String.contains?(line, "warning:") -> :warning
-            true -> :info
-          end
-
-        EctoBackup.Adapter.call_update(:message, options, repo, %{level: level, message: line})
-
-        if table_count && String.starts_with?(line, "pg_dump: dumping contents of table") do
-          percent = table_num / table_count
-          EctoBackup.Adapter.call_update(:progress, options, repo, %{percent: percent})
-          receive_output(port, repo, table_num + 1, table_count, options, [])
+        if total && String.starts_with?(line, "pg_dump: dumping contents of table") do
+          emit_progress_event(repo, completed, total)
+          receive_output(port, repo, completed + 1, total, options, [])
         else
-          receive_output(port, repo, table_num, table_count, options, [])
+          receive_output(port, repo, completed, total, options, [])
         end
 
       {^port, {:exit_status, exit_status}} ->
@@ -140,9 +114,7 @@ defmodule EctoBackup.Adapters.Postgres do
         receive do
           {^port, {:data, {_, data}}} ->
             line = [data | buffer] |> Enum.reverse() |> IO.iodata_to_binary()
-
-            EctoBackup.Adapter.call_update(:message, options, repo, %{level: :info, message: line})
-
+            emit_message_event(repo, line)
             exit_status
         after
           0 -> exit_status
@@ -225,7 +197,7 @@ defmodule EctoBackup.Adapters.Postgres do
     end
   end
 
-  def do_create_pgpass_file(password, env) do
+  defp do_create_pgpass_file(password, env) do
     with(
       {:ok, _pid} <- Temp.track(),
       {:ok, file, pgpass_path} <- Temp.open("ecto_backup_pgpass"),
@@ -243,6 +215,13 @@ defmodule EctoBackup.Adapters.Postgres do
 
   defp cleanup_pgpass_file(_env), do: :ok
 
+  @doc """
+  Check if the given backup file is a valid PostgreSQL backup file and contains the expected
+  tables.
+
+  Uses `list_backup_file_tables/2` for listing tables in the backup file. Any extra tables in
+  the backup file beyond the expected ones are ignored.
+  """
   def valid_backup_file?(backup_file, expected_tables, opts \\ []) do
     with(
       true <- is_binary(backup_file),
@@ -257,6 +236,16 @@ defmodule EctoBackup.Adapters.Postgres do
     end
   end
 
+  @doc """
+  List the tables contained in the given PostgreSQL backup file.
+
+  This is done by invoking `pg_restore --list` and parsing its output.
+
+  ## Options
+
+    - `:pg_restore_cmd` - The command to use for `pg_restore`. Defaults to `"pg_restore"` in
+      the system path.
+  """
   def list_backup_file_tables(backup_file, opts) do
     cmd = Keyword.get(opts, :pg_restore_cmd, "pg_restore")
     {output, 0} = System.cmd(cmd, ["--list", backup_file])
@@ -270,5 +259,36 @@ defmodule EctoBackup.Adapters.Postgres do
       end
     end)
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp emit_progress_event(repo, completed, total) do
+    measurements = %{
+      completed: completed,
+      total: total,
+      percent: completed / total
+    }
+
+    metadata = %{
+      repo: repo
+    }
+
+    :telemetry.execute([:ecto_backup, :backup, :repo, :progress], measurements, metadata)
+  end
+
+  defp emit_message_event(repo, message) do
+    level =
+      cond do
+        String.contains?(message, "error:") -> :error
+        String.contains?(message, "warning:") -> :warning
+        true -> :info
+      end
+
+    metadata = %{
+      repo: repo,
+      level: level,
+      message: message
+    }
+
+    :telemetry.execute([:ecto_backup, :backup, :repo, :message], %{}, metadata)
   end
 end

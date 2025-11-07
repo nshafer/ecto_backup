@@ -63,74 +63,16 @@ defmodule EctoBackup do
     - `:adapter` to specify which backup adapter to use instead of auto-detecting from the repo's
       adapter.
 
-  ## Update Callback
+  ## Telemetry Events
+  During backup and restore operations, the following telemetry events are emitted:
 
-  The `:update` option to the backup and restore functions allows you to provide a function that
-  will be called with updates during the backup or restore process. This can be useful for logging
-  messages, showing progress, updating a user interface, etc. Either a function with arity 3 can
-  be provided, or an MFA tuple in the form `{Module, :function, [:args]}`, where the following
-  arguments will be prepended to any that are provided.
-
-  The function should accept three arguments:
-    - `type` - An atom representing the type of update: `:started`, `:message`, `:progress`,
-      `:completed`.
-    - `repo` - The repository module currently being backed up.
-    - `data` - A map containing additional information about the update. The contents of this map
-      will vary depending on the `type` of update.
-
-  ### Data for type `:started`
-
-  This is called when the backup process for a repo starts. Keys:
-
-  - `:repo_config` - The final configuration used for the repo backup. Care should be taken to
-    avoid printing sensitive information such as passwords.
-
-  Example:
-
-      %{
-        repo_config: %{
-          database: "mydb",
-          username: "backup_user",
-          password: "supersecretpassword",
-          backup_file: "/tmp/export.db",
-          ...
-        }
-      }
-
-  ### Data for type `:message`
-
-  A message generated during the backup process, often from the underlying backup tool. Keys:
-    - `:level` - An atom indicating the message level, such as `:info`, `:warning`, or `:error`.
-    - `:message` - A string containing the message content.
-
-  Example:
-
-      %{
-        level: :info,
-        message: "Backing up table public.users"
-      }
-
-  ### Data for type `:progress`
-
-  An update of the overall backup process. Not all adapters may support progress updates, and
-  there is no guarantee they will start with 0.0 or end with 1.0. Keys:
-    - `:percent` - A float between `0.0` and `1.0` indicating the progress percentage.
-
-  Example:
-
-      %{percent: 0.24}
-
-  ### Data for type `:finished`
-
-  The result of the backup operation. Keys:
-    - `:result` - The result of the backup operation, which will be either `{:ok, backup_file}`
-                  or `{:error, reason}`.
-
-  Examples:
-
-      %{result: {:ok, "/tmp/export.db"}}
-      %{result: {:error, :timeout}}
-
+    - `[:ecto_backup, :backup, :start]` - Emitted at the start of a backup operation.
+    - `[:ecto_backup, :backup, :stop]` - Emitted at the end of a backup operation, includes
+      `:duration` in measurements and the `:result` in metadata.
+    - `[:ecto_backup, :backup, :repo, :start]` - Emitted at the start of a repo-specific backup
+      operation. Includes the `:repo`, `:repo_config`, and `:backup_file` in metadata.
+    - `[:ecto_backup, :backup, :repo, :stop]` - Emitted at the end of a repo-specific backup
+      operation. Includes the `:repo`, `:repo_config`, `:backup_file`, and `:result` in metadata.
   """
 
   alias EctoBackup.Adapter
@@ -151,8 +93,6 @@ defmodule EctoBackup do
       details.
     - `:backup_dir` - The directory where backup files will be stored if not individually
       specified. This directory must exist and be writable before calling this function.
-    - `:update` - A function or MFA tuple that will be called with information updates during the
-      backup process. See [Update Callback](#module-update-callback) section above.
 
   ## Examples:
 
@@ -172,34 +112,42 @@ defmodule EctoBackup do
         ]
       )
 
-      # Provide a function to receive updates during the backup process
-      update_fn = fn
-        :started, repo, %{repo_config: repo_config} ->
-          IO.puts("Starting backup for \#{inspect(repo)}: \#{inspect(repo_config)}")
-        :message, repo, %{level: level, message: message} ->
-          IO.puts("[\#{level}] \#{inspect(repo)}: \#{message}")
-        :progress, repo, %{percent: percent} ->
-          IO.puts("Progress for \#{inspect(repo)}: \#{Float.round(percent * 100, 2)}%")
-        :completed, repo, %{result: %{:ok, backup_file}} ->
-          IO.puts("Completed backup for \#{inspect(repo)} to \#{inspect(backup_file)}")
-        :completed, repo, %{result: {:error, reason}} ->
-          IO.puts("Backup failed for \#{inspect(repo)}: \#{inspect(reason)}")
-      end
-
-      EctoBackup.backup(update: update_fn)
-
   """
 
   def backup(opts \\ []) do
     options = Map.new(opts)
-    {repos, options} = Map.pop(options, :repos, [])
+    {repo_specs, options} = Map.pop(options, :repos, [])
 
-    with {:ok, repo_configs} <- Conf.get_repo_configs(repos) do
-      for {repo, repo_config} <- repo_configs do
-        with {:ok, backup_file} <- Conf.get_backup_file(repo_config, options) do
-          Adapter.backup(repo, repo_config, backup_file, options)
+    with {:ok, repo_configs} <- Conf.get_repo_configs(repo_specs) do
+      metadata = %{
+        repos: repo_configs,
+        options: options
+      }
+
+      :telemetry.span([:ecto_backup, :backup], metadata, fn ->
+        results = Enum.map(repo_configs, &do_repo_backup(&1, options))
+        {results, Map.put(metadata, :results, results)}
+      end)
+    end
+  end
+
+  defp do_repo_backup({repo, repo_config}, options) do
+    with {:ok, backup_file} <- Conf.get_backup_file(repo_config, options) do
+      metadata = %{
+        repo: repo,
+        repo_config: repo_config,
+        backup_file: backup_file,
+        options: options
+      }
+
+      :telemetry.span(
+        [:ecto_backup, :backup, :repo],
+        metadata,
+        fn ->
+          result = Adapter.backup(repo, repo_config, backup_file, options)
+          {result, Map.put(metadata, :result, result)}
         end
-      end
+      )
     end
   end
 end
