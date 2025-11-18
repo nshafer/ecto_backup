@@ -22,6 +22,7 @@ defmodule EctoBackup.MixProject do
     [
       ignore_modules: [
         EctoBackup.TestPGRepo,
+        EctoBackup.SecondRepo,
         EctoBackup.UnsupportedAdapter,
         EctoBackup.UnsupportedRepo
       ]

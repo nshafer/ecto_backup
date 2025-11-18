@@ -8,13 +8,18 @@ defmodule EctoBackup.Conf do
 
   This is intended to be used by EctoBackup adapters.
   """
+  alias EctoBackup.ConfError
+
+  @type repo_spec :: atom | {atom, keyword}
+  @type repo_config :: map()
+  @type options :: map()
 
   @doc """
   Fetches the value for the given key from the provided options, repo_config, or :ecto_backup environment.
 
   Returns `{:ok, value}` if found, or `:error` if the key is not present in any of the sources.
   """
-  @spec fetch(map, map, atom) :: {:ok, term} | :error
+  @spec fetch(repo_config(), options(), atom()) :: {:ok, term()} | :error
   def fetch(repo_config, options, key) do
     with(
       :error <- Map.fetch(options, key),
@@ -28,18 +33,27 @@ defmodule EctoBackup.Conf do
   @doc """
   Like `fetch/3`, but raises `KeyError` if the key is not found.
   """
-  @spec fetch!(map, map, atom) :: term
+  @spec fetch!(repo_config(), options(), atom()) :: term()
   def fetch!(repo_config, options, key) do
     case fetch(repo_config, options, key) do
-      {:ok, value} -> value
-      :error -> raise KeyError, "missing required configuration key #{inspect(key)}"
+      {:ok, value} ->
+        value
+
+      :error ->
+        raise KeyError,
+          key: key,
+          term: [
+            options: options,
+            repo_config: repo_config,
+            app_env: Application.get_all_env(:ecto_backup)
+          ]
     end
   end
 
   @doc """
   Like `fetch/3`, but returns the provided default value if the key is not found.
   """
-  @spec get(map, map, atom, term) :: term
+  @spec get(repo_config(), options(), atom(), term()) :: term()
   def get(repo_config, options, key, default) do
     case fetch(repo_config, options, key) do
       {:ok, value} -> value
@@ -47,10 +61,15 @@ defmodule EctoBackup.Conf do
     end
   end
 
-  # These are defined here, publicly, but undocumented so we can easily test them without patching/mocking.
+  # These are defined here, publicly, but undocumented so we can easily test them without
+  # patching/mocking.
 
   @doc false
-  @spec get_repo_configs([atom | {atom, keyword}]) :: {:ok, [{atom, map}]} | {:error, term}
+  # Retrieves the repository configurations for the given list of repository specifications. If
+  # the list is empty, retrieves the default repositories from application configuration. Merges
+  # configurations from the repo, application env, and overrides.
+  @spec get_repo_configs([repo_spec()]) ::
+          {:ok, [{Ecto.Repo.t(), repo_config()}]} | {:error, Exception.t()}
   def get_repo_configs([]) do
     with {:ok, repos} <- get_default_repos() do
       get_repo_configs(repos)
@@ -58,25 +77,21 @@ defmodule EctoBackup.Conf do
   end
 
   def get_repo_configs(repo_specs) when is_list(repo_specs) do
-    {:ok, Enum.map(repo_specs, &merge_repo_configs/1)}
+    {:ok, Enum.map(repo_specs, &merge_repo_configs!/1)}
+  rescue
+    e in ConfError ->
+      {:error, e}
   end
 
-  defp merge_repo_configs(repo_spec) do
+  defp merge_repo_configs!(repo_spec) do
     {repo, override_config} =
       case repo_spec do
-        {repo_module, config} when is_atom(repo_module) ->
-          {repo_module, Map.new(config)}
-
-        repo_module when is_atom(repo_module) ->
-          {repo_module, %{}}
-
-        other ->
-          raise ArgumentError,
-                "invalid repo specification, expected atom " <>
-                  "or {atom, keyword}, got: #{inspect(other)}"
+        {repo_module, config} when is_atom(repo_module) -> {repo_module, Map.new(config)}
+        repo_module when is_atom(repo_module) -> {repo_module, %{}}
+        other -> raise ConfError, reason: :invalid_repo_spec, value: other
       end
 
-    repo_config = repo_config(repo)
+    repo_config = get_repo_config!(repo)
     app_repo_config = Application.get_env(:ecto_backup, repo, %{}) |> Map.new()
 
     merged_config =
@@ -87,19 +102,22 @@ defmodule EctoBackup.Conf do
     {repo, merged_config}
   end
 
-  defp repo_config(repo) do
+  defp get_repo_config!(repo) do
     if Code.ensure_loaded?(repo) and function_exported?(repo, :__adapter__, 0) do
       case repo.config() do
         config when is_list(config) -> Map.new(config)
-        _ -> raise "invalid repo config returned from #{inspect(repo)}.config/0"
+        config -> raise ConfError, reason: :invalid_repo_config, repo: repo, value: config
       end
     else
-      raise ArgumentError, "#{inspect(repo)} is not a valid Ecto.Repo module"
+      raise ConfError, reason: :invalid_repo, repo: repo
     end
   end
 
   @doc false
-  @spec get_default_repos() :: {:ok, [atom]} | {:error, term}
+  # Retrieves the default repositories from application configuration. First checks
+  # for an explicit `:ecto_repos` config in the `:ecto_backup` app env, then
+  # falls back to checking the current Mix project if available.
+  @spec get_default_repos() :: {:ok, [Ecto.Repo.t()]} | {:error, Exception.t()}
   def get_default_repos() do
     # Check for an explicit config for `:ecto_repos` in `:ecto_backup` app env
     case Application.fetch_env(:ecto_backup, :ecto_repos) do
@@ -126,32 +144,76 @@ defmodule EctoBackup.Conf do
             |> Enum.uniq()
 
           case repos do
-            [] -> {:error, :no_default_repos}
+            [] -> {:error, ConfError.exception(reason: :no_default_repos_in_mix)}
             repos -> {:ok, repos}
           end
         else
-          # If Mix is not available, we cannot determine the default repos
-          {:error, :no_default_repos}
+          {:error, ConfError.exception(reason: :no_default_repos)}
         end
     end
   end
 
   @doc false
-  def get_backup_file(repo_config, options) do
+  # Return a list of backup file paths for the given list of repo configurations and options. If
+  # any repo configuration does not have a valid backup file path, raises an error.
+  @spec get_backup_files([{Ecto.Repo.t(), repo_config()}], options()) ::
+          {:ok, [String.t()]} | {:error, Exception.t()}
+  def get_backup_files(repo_configs, options) do
+    backup_files =
+      for {repo, repo_config} <- repo_configs do
+        get_backup_file!(repo, repo_config, options)
+      end
+
+    {:ok, backup_files}
+  rescue
+    e in [ConfError] ->
+      {:error, e}
+  end
+
+  @doc false
+  # Return the backup file path for the given repo configuration and options. If not
+  # explicitly specified, constructs a default backup file path using the backup_dir
+  # and a timestamped filename.
+  @spec get_backup_file!(Ecto.Repo.t(), repo_config(), options()) ::
+          {:ok, String.t()} | {:error, String.t()}
+  def get_backup_file!(repo, repo_config, options) do
     case fetch(repo_config, options, :backup_file) do
-      {:ok, file} when is_binary(file) -> {:ok, file}
-      {:ok, other} -> {:error, ":backup_file must be a string, got: #{inspect(other)}"}
-      :error -> default_backup_file(repo_config, options)
+      {:ok, file} when is_binary(file) ->
+        file
+
+      {:ok, fun} when is_function(fun, 2) ->
+        fun.(repo, repo_config)
+
+      {:ok, {m, f, a}} when is_atom(m) and is_atom(f) and is_list(a) ->
+        apply(m, f, [repo, repo_config] ++ a)
+
+      {:ok, other} ->
+        raise ConfError, reason: :invalid_backup_file, repo: repo, value: other
+
+      :error ->
+        default_backup_file!(repo, repo_config, options)
     end
   end
 
-  defp default_backup_file(repo_config, options) do
-    with {:ok, backup_dir} <- fetch(repo_config, options, :backup_dir) do
-      timestamp = DateTime.to_iso8601(DateTime.utc_now())
-      backup_name = repo_config[:database] || "ecto"
-      {:ok, Path.join(backup_dir, "#{backup_name}_backup_#{timestamp}.db")}
-    else
-      :error -> {:error, "no backup_file or backup_dir specified in options or configuration"}
+  defp default_backup_file!(repo, repo_config, options) do
+    case fetch(repo_config, options, :backup_dir) do
+      {:ok, backup_dir} when is_binary(backup_dir) ->
+        timestamp = DateTime.to_iso8601(DateTime.utc_now())
+        backup_name = repo_to_filename(repo)
+        Path.join(backup_dir, "#{backup_name}_backup_#{timestamp}.db")
+
+      {:ok, invalid} ->
+        raise ConfError, reason: :invalid_backup_dir, repo: repo, value: invalid
+
+      :error ->
+        raise ConfError, reason: :no_backup_dir_set, repo: repo
     end
+  end
+
+  def repo_to_filename(repo) do
+    repo
+    |> Module.split()
+    |> Enum.map(&Macro.underscore/1)
+    |> Enum.join("_")
   end
 end

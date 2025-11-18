@@ -1,7 +1,10 @@
 defmodule EctoBackup.PGBackupTest do
   use ExUnit.Case
+  alias EctoBackup.Error
+  alias EctoBackup.ConfError
   alias EctoBackup.TestPGRepo
   alias EctoBackup.UnsupportedRepo
+  alias EctoBackup.Adapters.Postgres
 
   doctest EctoBackup
 
@@ -24,8 +27,8 @@ defmodule EctoBackup.PGBackupTest do
     test "can backup the default databases", %{backup_dir: backup_dir} do
       Application.put_env(:ecto_backup, :ecto_repos, [TestPGRepo])
       Application.put_env(:ecto_backup, :backup_dir, backup_dir)
-      assert [{:ok, backup_file}] = EctoBackup.backup()
-      assert EctoBackup.Adapters.Postgres.valid_backup_file?(backup_file, ["test_table"])
+      assert {:ok, [{:ok, TestPGRepo, backup_file}]} = EctoBackup.backup()
+      assert Postgres.valid_backup_file?(backup_file, ["test_table_one", "test_table_two"])
       File.rm_rf(backup_file)
       Application.delete_env(:ecto_backup, :ecto_repos)
       Application.delete_env(:ecto_backup, :backup_dir)
@@ -35,15 +38,15 @@ defmodule EctoBackup.PGBackupTest do
   describe "TestPGRepo - EctoBackup.backup/1" do
     test "can backup the default databases", %{backup_dir: backup_dir} do
       opts = [repos: [TestPGRepo], backup_dir: backup_dir]
-      assert [{:ok, backup_file}] = EctoBackup.backup(opts)
-      assert EctoBackup.Adapters.Postgres.valid_backup_file?(backup_file, ["test_table"])
+      assert {:ok, [{:ok, TestPGRepo, backup_file}]} = EctoBackup.backup(opts)
+      assert Postgres.valid_backup_file?(backup_file, ["test_table_one", "test_table_two"])
     end
 
     test "can backup to custom file", %{backup_dir: backup_dir} do
       opts = [repos: [TestPGRepo], backup_file: "#{backup_dir}/custom_backup.db"]
-      assert [{:ok, backup_file}] = EctoBackup.backup(opts)
+      assert {:ok, [{:ok, TestPGRepo, backup_file}]} = EctoBackup.backup(opts)
       assert backup_file == "#{backup_dir}/custom_backup.db"
-      assert EctoBackup.Adapters.Postgres.valid_backup_file?(backup_file, ["test_table"])
+      assert Postgres.valid_backup_file?(backup_file, ["test_table_one", "test_table_two"])
     end
 
     test "can backup with overridden adapter in repo_config", %{backup_dir: backup_dir} do
@@ -52,8 +55,8 @@ defmodule EctoBackup.PGBackupTest do
         backup_dir: backup_dir
       ]
 
-      assert [{:ok, backup_file}] = EctoBackup.backup(opts)
-      assert EctoBackup.Adapters.Postgres.valid_backup_file?(backup_file, ["test_table"])
+      assert {:ok, [{:ok, TestPGRepo, backup_file}]} = EctoBackup.backup(opts)
+      assert Postgres.valid_backup_file?(backup_file, ["test_table_one", "test_table_two"])
     end
 
     test "telemetry events are emitted during backup", %{backup_dir: backup_dir} do
@@ -68,8 +71,8 @@ defmodule EctoBackup.PGBackupTest do
         ])
 
       opts = [repos: [TestPGRepo], backup_dir: backup_dir]
-      assert [{:ok, backup_file}] = EctoBackup.backup(opts)
-      assert EctoBackup.Adapters.Postgres.valid_backup_file?(backup_file, ["test_table"])
+      assert {:ok, [{:ok, TestPGRepo, backup_file}]} = EctoBackup.backup(opts)
+      assert Postgres.valid_backup_file?(backup_file, ["test_table_one", "test_table_two"])
 
       assert_received {[:ecto_backup, :backup, :start], ^ref, _measurements, _metadata}
       assert_received {[:ecto_backup, :backup, :stop], ^ref, _measurements, _metadata}
@@ -83,42 +86,42 @@ defmodule EctoBackup.PGBackupTest do
                        %{repo: _, level: _, message: _}}
     end
 
-    test "errors if given invalid database name", %{backup_dir: backup_dir} do
+    test "returns error if given invalid database name", %{backup_dir: backup_dir} do
       opts = [
         repos: [{TestPGRepo, [database: "non_existent_db"]}],
         backup_dir: backup_dir
       ]
 
-      assert [{:error, _reason}] = EctoBackup.backup(opts)
+      assert {:ok, [{:error, TestPGRepo, _reason}]} = EctoBackup.backup(opts)
     end
 
-    test "errors if given invalid pg_dump cmd", %{backup_dir: backup_dir} do
+    test "returns error if given invalid pg_dump cmd", %{backup_dir: backup_dir} do
       opts = [
         repos: [{TestPGRepo, [pg_dump_cmd: "non_existent_pg_dump"]}],
         backup_dir: backup_dir
       ]
 
-      assert [{:error, _reason}] = EctoBackup.backup(opts)
+      results = EctoBackup.backup(opts)
+      assert {:ok, [{:error, TestPGRepo, %Error{reason: :pg_dump_cmd_not_found}}]} = results
     end
 
-    test "errors if no repos are specified" do
+    test "returns error if no repos are specified" do
       opts = [backup_dir: "/tmp"]
-      assert {:error, :no_default_repos} = EctoBackup.backup(opts)
+
+      assert {:error, %ConfError{reason: :no_default_repos_in_mix}} = EctoBackup.backup(opts)
     end
 
     test "returns error if no backup_dir or backup_file is configured" do
-      assert [{:error, reason}] = EctoBackup.backup(repos: [TestPGRepo])
-      assert reason == "no backup_file or backup_dir specified in options or configuration"
+      assert {:error, %ConfError{reason: :no_backup_dir_set}} =
+               EctoBackup.backup(repos: [TestPGRepo])
     end
   end
 
   describe "UnsupportedRepo - EctoBackup.backup/1" do
     test "returns error for unsupported adapter" do
       opts = [repos: [UnsupportedRepo], backup_dir: "/tmp"]
-
-      assert_raise RuntimeError, ~r/Unsupported adapter/, fn ->
-        EctoBackup.backup(opts)
-      end
+      results = EctoBackup.backup(opts)
+      assert {:ok, [{:error, _, %Error{reason: :unsupported_ecto_adapter}}]} = results
     end
   end
 end

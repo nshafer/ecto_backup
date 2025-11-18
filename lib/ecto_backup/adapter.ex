@@ -8,6 +8,12 @@ defmodule EctoBackup.Adapter do
   @doc """
   Performs a backup of the given repository to the specified file.
 
+  This should return `{:ok, backup_file}` on success, where `backup_file` is the path to the created
+  backup file. On failure, it should return `{:error, %EctoBackup.Error{}}` with details about the failure.
+
+  Effort should be made to not throw exceptions from this function; instead, return errors in the
+  specified format. Errors can be created with `EctoBackup.Error.new/2`.
+
   ## Parameters
 
     - `repo`        - The Ecto repository module to back up.
@@ -21,7 +27,7 @@ defmodule EctoBackup.Adapter do
               repo_config :: map(),
               options :: map()
             ) ::
-              {:ok, String.t()} | {:error, term()}
+              {:ok, String.t()} | {:error, %EctoBackup.Error{}}
 
   @doc """
   Restores a backup for the given repository from the specified file.
@@ -42,6 +48,8 @@ defmodule EctoBackup.Adapter do
   #           ) ::
   #             :ok | {:error, term()}
 
+  @spec backup(Ecto.Repo.t(), map(), String.t(), map()) ::
+          {:ok, String.t()} | {:error, %EctoBackup.Error{}}
   def backup(repo, repo_config, file, options) do
     adapter_module(repo, repo_config).backup(repo, repo_config, file, options)
   end
@@ -57,7 +65,14 @@ defmodule EctoBackup.Adapter do
   defp adapter_module(repo, _repo_config) do
     case repo.__adapter__() do
       Ecto.Adapters.Postgres -> EctoBackup.Adapters.Postgres
-      other -> raise "Unsupported adapter #{inspect(other)} for repo #{inspect(repo)}"
+      adapter -> raise_unsupported_ecto_adapter_error(repo, adapter)
     end
+  end
+
+  defp raise_unsupported_ecto_adapter_error(repo, adapter) do
+    raise EctoBackup.Error,
+      reason: :unsupported_ecto_adapter,
+      repo: repo,
+      message: "unsupported Ecto adapter #{inspect(adapter)} for repo #{inspect(repo)}"
   end
 end

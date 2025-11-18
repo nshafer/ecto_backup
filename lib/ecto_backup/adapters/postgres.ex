@@ -52,19 +52,30 @@ defmodule EctoBackup.Adapters.Postgres do
   @behaviour EctoBackup.Adapter
 
   import Ecto.Query, only: [from: 2]
+  alias EctoBackup.Error
 
+  @impl true
   def backup(repo, repo_config, backup_file, options) do
     with(
-      {:ok, cmd} <- pg_dump_cmd(repo_config),
-      {:ok, args} <- pg_dump_args(repo_config, backup_file),
-      {:ok, env} = pg_env(repo_config),
-      {:ok, env} = create_pgpass_file(env, repo_config),
-      {:ok, table_count} = get_table_count(repo)
+      {:ok, cmd} <- pg_dump_cmd(repo, repo_config),
+      {:ok, args} <- pg_dump_args(repo, repo_config, backup_file),
+      {:ok, env} <- pg_env(repo, repo_config),
+      {:ok, env} <- create_pgpass_file(repo, env, repo_config),
+      {:ok, table_count} <- get_table_count(repo)
     ) do
       try do
         case run_cmd(cmd, args, env, repo, table_count, options) do
-          0 -> {:ok, backup_file}
-          exit_status -> {:error, {:exit_status, exit_status}}
+          0 ->
+            {:ok, backup_file}
+
+          exit_status ->
+            {:error,
+             Error.exception(
+               reason: :pg_dump_failed,
+               message: "pg_dump failed with exit status #{exit_status}",
+               term: exit_status,
+               repo: repo
+             )}
         end
       after
         cleanup_pgpass_file(env)
@@ -145,27 +156,41 @@ defmodule EctoBackup.Adapters.Postgres do
     end
   end
 
-  defp pg_dump_cmd(repo_config) do
+  defp pg_dump_cmd(repo, repo_config) do
     cmd = Map.get(repo_config, :pg_dump_cmd, "pg_dump")
 
     case System.find_executable(cmd) do
-      nil -> {:error, :pg_dump_not_found}
-      cmd -> {:ok, cmd}
+      nil ->
+        {:error,
+         Error.exception(
+           reason: :pg_dump_cmd_not_found,
+           message: "pg_dump command #{inspect(cmd)} not found in system PATH",
+           term: cmd,
+           repo: repo
+         )}
+
+      cmd ->
+        {:ok, cmd}
     end
   end
 
-  defp pg_dump_args(repo_config, backup_file) do
+  defp pg_dump_args(repo, repo_config, backup_file) do
     args = Map.get(repo_config, :pg_dump_args, ["--verbose", "--format=c", "--no-owner"])
 
     if Enum.any?(args, fn arg -> arg in ["-f", "--file"] end) do
-      {:error, :pg_dump_args_cannot_include_file_arg}
+      {:error,
+       Error.exception(
+         reason: :pg_dump_args_invalid,
+         message: "pg_dump_args cannot contain -f or --file argument",
+         repo: repo
+       )}
     else
       # Always add `--no-password` to avoid password prompt
       {:ok, args ++ ["--no-password", "--file", backup_file]}
     end
   end
 
-  defp pg_env(repo_config) do
+  defp pg_env(repo, repo_config) do
     if is_binary(repo_config[:database]) and repo_config[:database] != "" do
       {:ok,
        %{
@@ -176,7 +201,12 @@ defmodule EctoBackup.Adapters.Postgres do
          "PGOPTIONS" => repo_config[:options] || nil
        }}
     else
-      {:error, :database_not_specified}
+      {:error,
+       Error.exception(
+         reason: :database_not_specified,
+         message: ":database is not specified in repo config",
+         repo: repo
+       )}
     end
   end
 
@@ -188,12 +218,24 @@ defmodule EctoBackup.Adapters.Postgres do
     end)
   end
 
-  defp create_pgpass_file(env, repo_config) do
+  defp create_pgpass_file(repo, env, repo_config) do
     case repo_config[:password] do
-      nil -> {:ok, env}
-      "" -> {:ok, env}
-      password when is_binary(password) -> do_create_pgpass_file(password, env)
-      _ -> {:error, :invalid_password_value}
+      nil ->
+        {:ok, env}
+
+      "" ->
+        {:ok, env}
+
+      password when is_binary(password) ->
+        do_create_pgpass_file(password, env)
+
+      _ ->
+        {:error,
+         Error.exception(
+           reason: :invalid_password_value,
+           message: ":password must be a string if provided",
+           repo: repo
+         )}
     end
   end
 
