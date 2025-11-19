@@ -198,9 +198,7 @@ defmodule EctoBackup.Conf do
   defp default_backup_file!(repo, repo_config, options) do
     case fetch(repo_config, options, :backup_dir) do
       {:ok, backup_dir} when is_binary(backup_dir) ->
-        timestamp = DateTime.to_iso8601(DateTime.utc_now())
-        backup_name = repo_to_filename(repo)
-        Path.join(backup_dir, "#{backup_name}_backup_#{timestamp}.db")
+        Path.join(backup_dir, "#{repo_to_filename(repo)}_backup_#{filename_timestamp()}.db")
 
       {:ok, invalid} ->
         raise ConfError, reason: :invalid_backup_dir, repo: repo, value: invalid
@@ -210,7 +208,14 @@ defmodule EctoBackup.Conf do
     end
   end
 
-  def repo_to_filename(repo) do
+  defp filename_timestamp() do
+    DateTime.utc_now()
+    |> DateTime.truncate(:second)
+    |> DateTime.to_iso8601()
+    |> String.replace(":", "-")
+  end
+
+  defp repo_to_filename(repo) do
     repo
     |> Module.split()
     |> Enum.map(&Macro.underscore/1)

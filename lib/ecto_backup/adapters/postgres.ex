@@ -113,6 +113,7 @@ defmodule EctoBackup.Adapters.Postgres do
         line = [data | buffer] |> Enum.reverse() |> IO.iodata_to_binary()
         emit_message_event(repo, line)
 
+        # TODO: Send name of table being dumped in progress event
         if total && String.starts_with?(line, "pg_dump: dumping contents of table") do
           emit_progress_event(repo, completed, total)
           receive_output(port, repo, completed + 1, total, options, [])

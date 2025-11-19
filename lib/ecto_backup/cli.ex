@@ -50,20 +50,17 @@ defmodule EctoBackup.CLI do
   while a progress bar is being displayed.
   """
   def format_log(level, message) do
-    level =
+    level_color =
       case level do
-        :info -> [:green, "info", :default_color]
-        :warning -> [:yellow, "warning", :default_color]
-        :error -> [:red, "error", :default_color]
-        _ -> [:default_color, to_string(level)]
+        :info -> :default_color
+        :warning -> :yellow
+        :error -> :red
+        _ -> :default_color
       end
 
     [
       [?\r, :clear_line],
-      timestamp(),
-      " ",
-      [:bright, "[", level, "]", :reset],
-      " ",
+      level_color,
       message
     ]
   end
@@ -100,9 +97,21 @@ defmodule EctoBackup.CLI do
     subject_width = term_width - (byte_size(counter) + byte_size(percent) + byte_size(bar) + 4)
     subject = String.slice(subject, 0, subject_width) |> String.pad_trailing(subject_width)
 
-    [?\r, :clear_line, subject, " ", counter, " ", bar, " ", percent, " "]
+    [?\r, :clear_line, :bright, subject, :reset, " ", counter, " ", bar, " ", percent, " "]
   end
 
+  @doc """
+  Formats a repository name for terminal output using ANSI escape sequences.
+  """
+  @spec format_repo(module()) :: [term()]
+  def format_repo(repo) do
+    [:cyan, inspect(repo), :default_color]
+  end
+
+  @doc """
+  Formats a summary of backup or restore results for terminal output using ANSI escape sequences.
+  """
+  @spec format_results_summary([EctoBackup.backup_result()]) :: [[term()]]
   def format_results_summary(results) do
     for result <- results do
       case result do
@@ -110,7 +119,7 @@ defmodule EctoBackup.CLI do
           [
             [:green, "✔", :default_color],
             " ",
-            "[#{inspect(repo)}]",
+            format_repo(repo),
             " ",
             backup_file,
             "\n"
@@ -120,7 +129,7 @@ defmodule EctoBackup.CLI do
           [
             [:red, "✘", :default_color],
             " ",
-            "[#{inspect(repo)}]",
+            format_repo(repo),
             " ",
             Exception.message(error),
             "\n"
@@ -132,6 +141,7 @@ defmodule EctoBackup.CLI do
   @doc """
   Returns the current local timestamp formatted as "HH:MM:SS.mmm".
   """
+  @spec timestamp() :: String.t()
   def timestamp() do
     st = :erlang.system_time(:millisecond)
     {{_, _, _}, {h, m, s}} = :calendar.system_time_to_local_time(st, :millisecond)
@@ -144,10 +154,37 @@ defmodule EctoBackup.CLI do
     |> String.pad_leading(width, "0")
   end
 
-  defp term_width() do
+  @doc """
+  Returns the width of the terminal in columns, 80 if it cannot be determined.
+  """
+  @spec term_width() :: integer()
+  def term_width() do
     case :io.columns() do
       {:ok, width} -> width
       _ -> 80
+    end
+  end
+
+  @doc """
+  Returns a human-readable duration string given a duration and time_unit.
+  """
+  @spec duration(integer(), :native | :millisecond | :microsecond | :nanosecond) :: String.t()
+  def duration(duration, time_unit \\ :native) do
+    duration = System.convert_time_unit(duration, time_unit, :millisecond)
+
+    cond do
+      duration > 60 * 60 * 1000 ->
+        "#{div(duration, 60 * 60 * 1000)}h " <>
+          duration(rem(duration, 60 * 60 * 1000), :millisecond)
+
+      duration > 60 * 1000 ->
+        "#{div(duration, 60 * 1000)}m " <> duration(rem(duration, 60 * 1000), :millisecond)
+
+      duration > 1000 ->
+        "#{Float.round(duration / 1000, 2)}s"
+
+      true ->
+        "#{duration}ms"
     end
   end
 end

@@ -12,7 +12,7 @@ defmodule EctoBackup.Adapter do
   backup file. On failure, it should return `{:error, %EctoBackup.Error{}}` with details about the failure.
 
   Effort should be made to not throw exceptions from this function; instead, return errors in the
-  specified format. Errors can be created with `EctoBackup.Error.new/2`.
+  specified format.
 
   ## Parameters
 

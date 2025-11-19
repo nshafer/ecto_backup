@@ -8,13 +8,13 @@ defmodule Mix.Tasks.EctoBackup.Backup do
   @pd_progress :ecto_backup_progress
 
   use Mix.Task
-  alias EctoBackup.CLI
+  import EctoBackup.CLI
 
   @impl true
   def run(args) do
     Mix.Task.run("app.start")
-    options = CLI.parse_args!(args)
-    backup_opts = CLI.backup_opts_from_cli_opts(options)
+    options = parse_args!(args)
+    backup_opts = backup_opts_from_cli_opts(options)
 
     if options.quiet do
       Mix.shell(Mix.Shell.Quiet)
@@ -28,101 +28,116 @@ defmodule Mix.Tasks.EctoBackup.Backup do
       {:error, %EctoBackup.ConfError{} = e} ->
         error("Configuration Error: #{Exception.message(e)}")
 
-      {:error, %EctoBackup.Error{} = e} ->
-        error("Error: #{Exception.message(e)}")
-
       {:error, e} when is_exception(e) ->
         error("Error: #{Exception.message(e)}")
 
       {:error, reason} ->
         error("Error: #{inspect(reason)}")
     end
+
+    detach_telemetry()
   end
 
   defp summarize_results(results) do
-    Mix.shell().info("\nBackup Summary:")
-    Mix.shell().info(EctoBackup.CLI.format_results_summary(results))
+    Mix.shell().info("Backup Summary:")
+    Mix.shell().info(format_results_summary(results))
   end
 
   defp attach_telemetry(opts) do
-    :telemetry.attach_many(
-      "sandbox-ecto-backup-handler",
-      [
-        [:ecto_backup, :backup, :start],
-        [:ecto_backup, :backup, :stop],
-        [:ecto_backup, :backup, :exception],
-        [:ecto_backup, :backup, :repo, :start],
-        [:ecto_backup, :backup, :repo, :stop],
-        [:ecto_backup, :backup, :repo, :exception],
-        [:ecto_backup, :backup, :repo, :progress],
-        [:ecto_backup, :backup, :repo, :message]
-      ],
-      &__MODULE__.handle_event/4,
-      opts
-    )
+    result =
+      :telemetry.attach_many(
+        "mix-ecto_backup.backup-handler",
+        [
+          [:ecto_backup, :backup, :start],
+          [:ecto_backup, :backup, :stop],
+          [:ecto_backup, :backup, :exception],
+          [:ecto_backup, :backup, :repo, :start],
+          [:ecto_backup, :backup, :repo, :stop],
+          [:ecto_backup, :backup, :repo, :exception],
+          [:ecto_backup, :backup, :repo, :progress],
+          [:ecto_backup, :backup, :repo, :message]
+        ],
+        &__MODULE__.handle_event/4,
+        opts
+      )
+
+    case result do
+      :ok ->
+        :ok
+
+      {:error, :already_exists} ->
+        detach_telemetry()
+        attach_telemetry(opts)
+    end
   end
 
-  def handle_event([:ecto_backup, :backup, :start], _measurements, metadata, _config) do
-    %{repos: repos} = metadata
+  defp detach_telemetry() do
+    :telemetry.detach("mix-ecto_backup.backup-handler")
+  end
 
-    if length(repos) > 1 do
+  def handle_event([:ecto_backup, :backup, :start], _, metadata, _) do
+    %{repos: repos} = metadata
+    num_repos = length(repos)
+
+    if num_repos > 1 do
       info([
-        "Starting backups for #{length(repos)} repositories: ",
-        Enum.map_join(repos, ", ", fn {repo, _config} -> inspect(repo) end)
+        "Starting backups for #{num_repos} repositories:  ",
+        repos
+        |> Enum.map(fn {repo, _config} -> format_repo(repo) end)
+        |> Enum.intersperse(", "),
+        :reset,
+        "\n"
       ])
     end
   end
 
-  def handle_event([:ecto_backup, :backup, :stop], %{duration: duration}, metadata, _config) do
+  def handle_event([:ecto_backup, :backup, :stop], measurements, metadata, _) do
+    %{duration: duration} = measurements
     %{repos: repos} = metadata
+    num_repos = length(repos)
 
-    if length(repos) > 1 do
-      info("All backups completed in #{duration(duration)}")
+    if num_repos > 1 do
+      info("All backups completed in #{duration(duration)}\n")
     end
   end
 
-  def handle_event([:ecto_backup, :backup, :repo, :start], _measurements, metadata, _config) do
+  def handle_event([:ecto_backup, :backup, :repo, :start], _, metadata, _) do
     %{repo: repo, repo_config: repo_config, backup_file: backup_file} = metadata
 
     message =
-      case repo_config do
-        %{database: db} -> "Starting backup of database \"#{db}\" to \"#{backup_file}\""
-        _ -> "Starting backup"
-      end
+      [
+        "Starting backup at #{timestamp()}\n",
+        "  Database:    \"#{repo_config[:database]}\"\n",
+        if(repo_config[:username], do: "  Username:    \"#{repo_config[:username]}\"\n"),
+        if(repo_config[:hostname], do: "  Hostname:    \"#{repo_config[:hostname]}\"\n"),
+        if(repo_config[:port], do: "  Port:       \"#{repo_config[:port]}\"\n"),
+        "  Backup File: \"#{backup_file}\"\n"
+      ]
 
-    info("[#{inspect(repo)}] #{message}")
+    info(["[", format_repo(repo), "] ", Enum.reject(message, &is_nil/1)])
   end
 
-  def handle_event(
-        [:ecto_backup, :backup, :repo, :stop],
-        %{duration: duration},
-        %{repo: repo},
-        _config
-      ) do
-    info("[#{inspect(repo)}] Backup completed in #{duration(duration)}")
+  def handle_event([:ecto_backup, :backup, :repo, :stop], measurements, metadata, _) do
+    %{duration: duration} = measurements
+    %{repo: repo} = metadata
+    info(["[", format_repo(repo), "] Backup completed in ", duration(duration), "\n"])
   end
 
-  def handle_event(
-        [:ecto_backup, :backup, :repo, :progress],
-        %{completed: completed, total: total},
-        %{repo: repo},
-        _config
-      ) do
+  def handle_event([:ecto_backup, :backup, :repo, :progress], measurements, metadata, _) do
+    %{completed: completed, total: total} = measurements
+    %{repo: repo} = metadata
     # Save the progress in the process dictionary to re-output after log messages
     Process.put(@pd_progress, {completed, total})
     progress(inspect(repo), completed, total)
   end
 
-  def handle_event(
-        [:ecto_backup, :backup, :repo, :message],
-        _measurements,
-        %{repo: repo, level: level, message: message},
-        config
-      ) do
+  def handle_event([:ecto_backup, :backup, :repo, :message], _, metadata, config) do
+    %{repo: repo, level: level, message: message} = metadata
+
     cond do
-      level == :info && config.verbose -> info("[#{inspect(repo)}] #{message}")
-      level == :warning -> warning("[#{inspect(repo)}] #{message}")
-      level == :error -> error("[#{inspect(repo)}] #{message}")
+      level == :info && config.verbose -> info(["[", format_repo(repo), "] #{message}"])
+      level == :warning -> warning(["[", format_repo(repo), "] #{message}"])
+      level == :error -> error(["[", format_repo(repo), "] #{message}"])
       true -> :ok
     end
 
@@ -133,17 +148,20 @@ defmodule Mix.Tasks.EctoBackup.Backup do
     end
   end
 
-  def handle_event(event, measurements, metadata, config) do
-    warning([
-      "Unhandled event: #{inspect(event)} ",
-      "measurements: #{inspect(measurements)} ",
-      "metadata: #{inspect(metadata)} ",
-      "config: #{inspect(config)}"
-    ])
+  def handle_event(_event, _measurements, _metadata, _config) do
+    # Ignore unhandled events that adapters might emit
+    :ok
+
+    # warning([
+    #   "Unhandled telemetry event: #{inspect(event)} ",
+    #   "measurements: #{inspect(measurements)} ",
+    #   "metadata: #{inspect(metadata)} ",
+    #   "config: #{inspect(config)}"
+    # ])
   end
 
   defp log(level, message) do
-    output = CLI.format_log(level, message)
+    output = format_log(level, message)
     Mix.shell().info(output)
   end
 
@@ -156,23 +174,8 @@ defmodule Mix.Tasks.EctoBackup.Backup do
   # Output progress bar only if Mix.shell() is Mix.Shell.IO, otherwise noop. This uses
   # IO.ANSI.format_fragment() and IO.write() to avoid adding newlines and ANSI resets.
   defp progress(subject, completed, total) do
-    CLI.format_progress(subject, completed, total)
+    format_progress(subject, completed, total)
     |> write()
-  end
-
-  defp duration(duration) do
-    duration = System.convert_time_unit(duration, :native, :millisecond)
-
-    cond do
-      duration > 60_000 ->
-        "#{Float.round(duration / 60000, 2)}min"
-
-      duration > 1000 ->
-        "#{Float.round(duration / 1000, 2)}s"
-
-      true ->
-        "#{duration}ms"
-    end
   end
 
   # Write output without a newline, handling different Mix shells we care about

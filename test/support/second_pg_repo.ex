@@ -1,4 +1,4 @@
-defmodule EctoBackup.SecondRepo do
+defmodule EctoBackup.SecondPGRepo do
   use Ecto.Repo,
     otp_app: :ecto_backup_project,
     adapter: Ecto.Adapters.Postgres
