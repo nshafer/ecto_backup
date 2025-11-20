@@ -126,9 +126,13 @@ defmodule Mix.Tasks.EctoBackup.Backup do
   def handle_event([:ecto_backup, :backup, :repo, :progress], measurements, metadata, _) do
     %{completed: completed, total: total} = measurements
     %{repo: repo} = metadata
+    subject = metadata[:subject] || inspect(repo)
+    label = metadata[:label]
+
     # Save the progress in the process dictionary to re-output after log messages
-    Process.put(@pd_progress, {completed, total})
-    progress(inspect(repo), completed, total)
+    Process.put(@pd_progress, {subject, completed, total, label})
+
+    progress(subject, completed, total, label)
   end
 
   def handle_event([:ecto_backup, :backup, :repo, :message], _, metadata, config) do
@@ -143,7 +147,7 @@ defmodule Mix.Tasks.EctoBackup.Backup do
 
     # Re-output progress bar after log message
     case Process.get(@pd_progress) do
-      {completed, total} -> progress(inspect(repo), completed, total)
+      {subject, completed, total, label} -> progress(subject, completed, total, label)
       nil -> :ok
     end
   end
@@ -173,8 +177,8 @@ defmodule Mix.Tasks.EctoBackup.Backup do
 
   # Output progress bar only if Mix.shell() is Mix.Shell.IO, otherwise noop. This uses
   # IO.ANSI.format_fragment() and IO.write() to avoid adding newlines and ANSI resets.
-  defp progress(subject, completed, total) do
-    format_progress(subject, completed, total)
+  defp progress(subject, completed, total, label) do
+    format_progress(subject, completed, total, label)
     |> write()
   end
 

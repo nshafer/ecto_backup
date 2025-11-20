@@ -113,9 +113,15 @@ defmodule EctoBackup.Adapters.Postgres do
         line = [data | buffer] |> Enum.reverse() |> IO.iodata_to_binary()
         emit_message_event(repo, line)
 
-        # TODO: Send name of table being dumped in progress event
         if total && String.starts_with?(line, "pg_dump: dumping contents of table") do
-          emit_progress_event(repo, completed, total)
+          case Regex.run(~r/pg_dump: dumping contents of table "([^"]+)"/, line) do
+            [_full, table_name] ->
+              emit_progress_event(repo, completed, total, trim_table_name(table_name))
+
+            _ ->
+              emit_progress_event(repo, completed, total, nil)
+          end
+
           receive_output(port, repo, completed + 1, total, options, [])
         else
           receive_output(port, repo, completed, total, options, [])
@@ -304,15 +310,15 @@ defmodule EctoBackup.Adapters.Postgres do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp emit_progress_event(repo, completed, total) do
+  defp emit_progress_event(repo, completed, total, table_name) do
     measurements = %{
       completed: completed,
-      total: total,
-      percent: completed / total
+      total: total
     }
 
     metadata = %{
-      repo: repo
+      repo: repo,
+      subject: table_name && "Table: #{table_name}"
     }
 
     :telemetry.execute([:ecto_backup, :backup, :repo, :progress], measurements, metadata)
@@ -333,5 +339,12 @@ defmodule EctoBackup.Adapters.Postgres do
     }
 
     :telemetry.execute([:ecto_backup, :backup, :repo, :message], %{}, metadata)
+  end
+
+  defp trim_table_name(table_name) do
+    table_name
+    |> String.trim()
+    |> String.trim("\"")
+    |> String.trim_leading("public.")
   end
 end

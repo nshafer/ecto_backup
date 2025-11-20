@@ -79,8 +79,8 @@ defmodule EctoBackup.PGBackupTest do
       assert_received {[:ecto_backup, :backup, :repo, :start], ^ref, _measurements, %{repo: _}}
       assert_received {[:ecto_backup, :backup, :repo, :stop], ^ref, _measurements, %{repo: _}}
 
-      assert_received {[:ecto_backup, :backup, :repo, :progress], ^ref,
-                       %{completed: _, total: _, percent: _}, %{repo: _}}
+      assert_received {[:ecto_backup, :backup, :repo, :progress], ^ref, %{completed: _, total: _},
+                       %{repo: _}}
 
       assert_received {[:ecto_backup, :backup, :repo, :message], ^ref, _measurements,
                        %{repo: _, level: _, message: _}}
