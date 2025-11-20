@@ -77,14 +77,12 @@ defmodule EctoBackup.CLI do
   this is not guaranteed. If you desire to print anything to the screen, you should print a
   carriage return followed by a `:clear_line` ANSI code first so that the progress bar is erased.
   """
-  def format_progress(subject, completed, total) do
-    term_width = term_width()
-
-    # Counter is "[15/36]" or "[45/145]"
-    counter = "[#{completed}/#{total}]"
+  def format_progress(subject, completed, total, label, term_width \\ term_width()) do
+    # Counter is "15/36" or "45/145 MiB"
+    counter = "#{completed}/#{total}#{if label, do: " #{label}", else: ""}"
 
     # Percent is " 41%"
-    percent = "#{trunc(completed / total * 100) |> to_string() |> String.pad_leading(4)}%"
+    percent = "#{trunc(completed / total * 100) |> to_string() |> String.pad_leading(3)}%"
 
     # Bar takes 35% of terminal width, minus 2 for the brackets
     # [##########----------------]

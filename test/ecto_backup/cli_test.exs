@@ -52,6 +52,28 @@ defmodule EctoBackup.IOTest do
     end
   end
 
+  describe "format_progress/4" do
+    test "formats progress bar with subject and label" do
+      progress_bar = CLI.format_progress("EctoBackup.TestPGRepo", 15, 36, "MiB", 70)
+      str = IO.ANSI.format(progress_bar, false) |> IO.chardata_to_string()
+      assert str == "\rEctoBackup.TestPGRepo         15/36 MiB [#########-------------]  41% "
+    end
+
+    test "formats progress bar without label" do
+      progress_bar = CLI.format_progress("EctoBackup.TestPGRepo", 45, 145, nil, 70)
+      str = IO.ANSI.format(progress_bar, false) |> IO.chardata_to_string()
+      assert str == "\rEctoBackup.TestPGRepo            45/145 [######----------------]  31% "
+    end
+
+    test "formats progress bar with long subject and label" do
+      subject = "A long subject that exceeds the space available for subjects"
+      progress_bar = CLI.format_progress(subject, 300, 1000, "GB", 70)
+      str = IO.ANSI.format(progress_bar, false) |> IO.chardata_to_string()
+
+      assert str == "\rA long subject that exceeds 300/1000 GB [######----------------]  30% "
+    end
+  end
+
   describe "timestamp/0" do
     test "returns current timestamp in HH:MM:SS.mmm format" do
       timestamp = CLI.timestamp()
