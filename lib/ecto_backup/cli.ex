@@ -173,15 +173,23 @@ defmodule EctoBackup.CLI do
     duration = System.convert_time_unit(duration, time_unit, :millisecond)
 
     cond do
-      duration > 60 * 60 * 1000 ->
-        "#{div(duration, 60 * 60 * 1000)}h " <>
-          duration(rem(duration, 60 * 60 * 1000), :millisecond)
+      duration >= 60 * 60 * 1000 ->
+        hours = div(duration, 60 * 60 * 1000)
+        duration = rem(duration, 60 * 60 * 1000)
+        minutes = div(duration, 60 * 1000)
+        duration = rem(duration, 60 * 1000)
+        seconds = Float.round(duration / 1000, 2)
+        "#{hours}h #{minutes}m #{seconds}s"
 
-      duration > 60 * 1000 ->
-        "#{div(duration, 60 * 1000)}m " <> duration(rem(duration, 60 * 1000), :millisecond)
+      duration >= 60 * 1000 ->
+        minutes = div(duration, 60 * 1000)
+        duration = rem(duration, 60 * 1000)
+        seconds = Float.round(duration / 1000, 2)
+        "#{minutes}m #{seconds}s"
 
-      duration > 1000 ->
-        "#{Float.round(duration / 1000, 2)}s"
+      duration >= 1000 ->
+        seconds = Float.round(duration / 1000, 2)
+        "#{seconds}s"
 
       true ->
         "#{duration}ms"

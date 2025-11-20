@@ -51,4 +51,38 @@ defmodule EctoBackup.IOTest do
       assert Enum.any?(log_message, fn msg -> msg == "Debug message" end)
     end
   end
+
+  describe "timestamp/0" do
+    test "returns current timestamp in HH:MM:SS.mmm format" do
+      timestamp = CLI.timestamp()
+      assert Regex.match?(~r/^\d{2}:\d{2}:\d{2}\.\d{3}$/, timestamp)
+    end
+  end
+
+  describe "duration/1" do
+    test "formats from native time" do
+      duration = System.convert_time_unit(512, :millisecond, :native)
+      assert CLI.duration(duration) == "512ms"
+
+      duration = System.convert_time_unit(1534, :millisecond, :native)
+      assert CLI.duration(duration) == "1.53s"
+
+      duration = System.convert_time_unit(65_478, :millisecond, :native)
+      assert CLI.duration(duration) == "1m 5.48s"
+
+      duration = System.convert_time_unit(3_660_250, :millisecond, :native)
+      assert CLI.duration(duration) == "1h 1m 0.25s"
+    end
+
+    test "formats duration in milliseconds to human-readable string" do
+      assert CLI.duration(500, :millisecond) == "500ms"
+      assert CLI.duration(1500, :millisecond) == "1.5s"
+      assert CLI.duration(65_000, :millisecond) == "1m 5.0s"
+      assert CLI.duration(65_100, :millisecond) == "1m 5.1s"
+      assert CLI.duration(65_150, :millisecond) == "1m 5.15s"
+      assert CLI.duration(3_600_000, :millisecond) == "1h 0m 0.0s"
+      assert CLI.duration(3_600_150, :millisecond) == "1h 0m 0.15s"
+      assert CLI.duration(3_660_500, :millisecond) == "1h 1m 0.5s"
+    end
+  end
 end
