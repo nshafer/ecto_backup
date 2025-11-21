@@ -5,7 +5,7 @@ defmodule EctoBackup.IOTest do
 
   doctest EctoBackup.CLI
 
-  describe "parse_args!/1" do
+  describe "parse_backup_args!/1" do
     test "parses command line arguments into options map" do
       args = [
         "-r",
@@ -17,7 +17,7 @@ defmodule EctoBackup.IOTest do
         "-v"
       ]
 
-      options = CLI.parse_args!(args)
+      options = CLI.parse_backup_args!(args)
       assert options[:repos] == [TestPGRepo, AnotherRepo]
       assert options[:backup_dir] == "/tmp/backups"
       assert options[:verbose] == true

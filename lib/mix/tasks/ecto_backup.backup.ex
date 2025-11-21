@@ -13,7 +13,7 @@ defmodule Mix.Tasks.EctoBackup.Backup do
   @impl true
   def run(args) do
     Mix.Task.run("app.start")
-    options = parse_args!(args)
+    options = parse_backup_args!(args)
     backup_opts = backup_opts_from_cli_opts(options)
 
     if options.quiet do
@@ -50,10 +50,8 @@ defmodule Mix.Tasks.EctoBackup.Backup do
         [
           [:ecto_backup, :backup, :start],
           [:ecto_backup, :backup, :stop],
-          [:ecto_backup, :backup, :exception],
           [:ecto_backup, :backup, :repo, :start],
           [:ecto_backup, :backup, :repo, :stop],
-          [:ecto_backup, :backup, :repo, :exception],
           [:ecto_backup, :backup, :repo, :progress],
           [:ecto_backup, :backup, :repo, :message]
         ],
@@ -114,13 +112,13 @@ defmodule Mix.Tasks.EctoBackup.Backup do
         "  Backup File: \"#{backup_file}\"\n"
       ]
 
-    info(["[", format_repo(repo), "] ", Enum.reject(message, &is_nil/1)])
+    info(repo, Enum.reject(message, &is_nil/1))
   end
 
   def handle_event([:ecto_backup, :backup, :repo, :stop], measurements, metadata, _) do
     %{duration: duration} = measurements
     %{repo: repo} = metadata
-    info(["[", format_repo(repo), "] Backup completed in ", duration(duration), "\n"])
+    info(repo, ["Backup completed in ", duration(duration), "\n"])
   end
 
   def handle_event([:ecto_backup, :backup, :repo, :progress], measurements, metadata, _) do
@@ -139,9 +137,9 @@ defmodule Mix.Tasks.EctoBackup.Backup do
     %{repo: repo, level: level, message: message} = metadata
 
     cond do
-      level == :info && config.verbose -> info(["[", format_repo(repo), "] #{message}"])
-      level == :warning -> warning(["[", format_repo(repo), "] #{message}"])
-      level == :error -> error(["[", format_repo(repo), "] #{message}"])
+      level == :info && config.verbose -> info(repo, message)
+      level == :warning -> warning(repo, ["Warning: ", message])
+      level == :error -> error(repo, ["Error: ", message])
       true -> :ok
     end
 
@@ -152,37 +150,40 @@ defmodule Mix.Tasks.EctoBackup.Backup do
     end
   end
 
-  def handle_event(_event, _measurements, _metadata, _config) do
-    # Ignore unhandled events that adapters might emit
-    :ok
-
-    # warning([
-    #   "Unhandled telemetry event: #{inspect(event)} ",
-    #   "measurements: #{inspect(measurements)} ",
-    #   "metadata: #{inspect(metadata)} ",
-    #   "config: #{inspect(config)}"
-    # ])
+  def handle_event(event, measurements, metadata, config) do
+    warning([
+      "Unhandled telemetry event: #{inspect(event)} ",
+      "measurements: #{inspect(measurements)} ",
+      "metadata: #{inspect(metadata)} ",
+      "config: #{inspect(config)}"
+    ])
   end
 
-  defp log(level, message) do
-    output = format_log(level, message)
-    Mix.shell().info(output)
-  end
-
-  defp info(message), do: log(:info, message)
-
-  defp warning(message), do: Mix.shell().info("Warning: #{message}")
-
-  defp error(message), do: Mix.shell().error(message)
-
-  # Output progress bar only if Mix.shell() is Mix.Shell.IO, otherwise noop. This uses
-  # IO.ANSI.format_fragment() and IO.write() to avoid adding newlines and ANSI resets.
   defp progress(subject, completed, total, label) do
     format_progress(subject, completed, total, label)
     |> write()
   end
 
-  # Write output without a newline, handling different Mix shells we care about
+  defp log(level, message) do
+    output = format_log(level, message)
+
+    if level == :error do
+      Mix.shell().error(output)
+    else
+      Mix.shell().info(output)
+    end
+  end
+
+  defp info(message), do: log(:info, message)
+  defp info(repo, message), do: log(:info, ["[", format_repo(repo), "] ", message])
+
+  defp warning(message), do: log(:warning, message)
+  defp warning(repo, message), do: log(:warning, ["[", inspect(repo), "] ", message])
+
+  defp error(message), do: log(:error, message)
+  defp error(repo, message), do: log(:error, ["[", inspect(repo), "] ", message])
+
+  # Write output without the newline that `Mix.Shell.IO.info` adds
   defp write(message) do
     case Mix.shell() do
       Mix.Shell.IO -> IO.write(format(message))

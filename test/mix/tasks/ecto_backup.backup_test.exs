@@ -70,7 +70,7 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
       Mix.Tasks.EctoBackup.Backup.run(args)
 
       assert_received {:mix_shell, :error,
-                       ["Configuration Error: NonExistentRepo is not a valid Ecto.Repo module"]}
+                       ["\rConfiguration Error: NonExistentRepo is not a valid Ecto.Repo module"]}
 
       # Mix.Shell.Process.flush(&IO.inspect/1)
     end
@@ -81,7 +81,7 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
 
       assert_received {:mix_shell, :error,
                        [
-                         "Configuration Error: invalid backup " <>
+                         "\rConfiguration Error: invalid backup " <>
                            "directory path, expected a string, got 12345"
                        ]}
     end
@@ -95,7 +95,7 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
 
       assert_received {:mix_shell, :error,
                        [
-                         "[EctoBackup.TestPGRepo] pg_dump: error: could not open output " <>
+                         "\r[EctoBackup.TestPGRepo] Error: pg_dump: error: could not open output " <>
                            "file \"/invalid/path/to/backup.db\": No such file or directory"
                        ]}
 

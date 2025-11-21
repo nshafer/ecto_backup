@@ -133,6 +133,7 @@ defmodule EctoBackup.CLI do
             " ",
             format_repo(repo),
             " ",
+            :red,
             Exception.message(error),
             "\n"
           ]
