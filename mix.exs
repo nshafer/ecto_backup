@@ -45,7 +45,8 @@ defmodule EctoBackup.MixProject do
 
   defp aliases do
     [
-      testi: ["test.interactive"],
+      "test.i": ["test.interactive"],
+      "docs.w": ["cmd find lib/ -name '*.ex' | entr -n mix docs"],
       precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]
     ]
   end

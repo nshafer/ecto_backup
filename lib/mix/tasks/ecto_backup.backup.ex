@@ -1,6 +1,34 @@
 defmodule Mix.Tasks.EctoBackup.Backup do
   @moduledoc """
   Mix task to perform backups of Ecto repositories.
+
+  This task can back up one or more Ecto repositories configured in your application. This is
+  typically configured in your "config/config.exs" or environment-specific configuration files.
+  See the `EctoBackup` module documentation for more details on how repositories are discovered
+  and configured.
+
+  ## Configuration Example
+
+      # Configure defaults when running `mix ecto_backup.backup`
+      config :ecto_backup,
+        ecto_repos: [MyApp.Repo, MyApp.AnotherRepo],
+        backup_dir: "/path/to/backup/dir"
+
+      # For individual repo configuration, you can specify options like this:
+      config :ecto_backup, MyApp.Repo,
+        backup_file: {MyApp.Repo, :custom_backup_file, []},
+        username: "backup_user"
+
+  ## Command Line Options
+
+    - `-r`, `--repo`       - Specify one or more Ecto repositories to back up. Can be used
+      multiple times to back up multiple repos. If not specified, the default repos from the
+      application configuration will be used, first from the `:myapp, :ecto_repos` config (only if
+      Mix is available), then from the `:ecto_backup, :ecto_repos` config.
+    - `-d`, `--backup-dir` - Specify the directory where backup files will be stored if not
+      individually specified.
+    - `-v`, `--verbose`    - Enable verbose logging output.
+    - `-q`, `--quiet`      - Suppress all output except for errors.
   """
   @shortdoc "Performs backups of Ecto repositories"
 

@@ -2,20 +2,15 @@ defmodule EctoBackup do
   @moduledoc """
   EctoBackup provides functionality to back up and restore Ecto repositories.
 
-  ## Repo Discovery
+  This module is the main interface for performing backup and restore operations, and is what the
+  mix tasks, release tasks, and scheduled jobs use for their main functionality. As such these
+  functions are generic and provide hooks and telemetry events for those higher level interfaces
+  to build upon.
 
-  The functions in this module operate on one or more Ecto repositories. The list of repositories
-  will default to those configured in the `:ecto_repos` application environment for your app,
-  which is how you normally configure the list of Repos for Ecto tasks, such as `mix
-  ecto.migrate`.
-
-  You can instead provide an explicit list of repos to backup by setting the `:ecto_repos` option
-  in the `:ecto_backup` application environment:
-
-      config :ecto_backup, ecto_repos: [MyApp.Repo, MyApp.AnotherRepo]
-
-  Or you can provide the list of repos in the `:repos` option of the backup function, see
-  `backup/1`.
+  For most use cases, these functions are not used directly, but rather through the mix tasks when
+  in a development environment, or through release tasks or scheduled jobs in production
+  environments. See the `Mix.Tasks.EctoBackup.Backup` and `Mix.Tasks.EctoBackup.Restore` modules
+  for more information on the mix tasks.
 
   ## Individual Repo Configuration
 
@@ -88,11 +83,15 @@ defmodule EctoBackup do
   ## Options
 
     - `:repos` - A list of repositories to back up. If not provided, the default repositories from
-      the application configuration will be used. See the [Repo Discovery](#module-repo-discovery)
-      and [Individual Repo Configuration](#module-individual-repo-configuration) sections for more
+      the application configuration will be used. See the [Repo Discovery](`backup/1#repo-discovery`)
+      and [Individual Repo Configuration](`EctoBackup#module-individual-repo-configuration`) sections for more
       details.
     - `:backup_dir` - The directory where backup files will be stored if not individually
-      specified. This directory must exist and be writable before calling this function.
+      specified. This directory must exist and be writable before calling this function. Can be a
+      string, 2-arity function that takes the repo and repo_config and returns a string, or a MFA
+      tuple to a function that takes args prepended with the repo and repo_config and returns a string.
+    - Other options may be provided which will be passed to the adapter's backup function. See
+      the documentation for the specific adapter being used for more details on supported options.
 
   ## Examples:
 
@@ -111,6 +110,21 @@ defmodule EctoBackup do
           {MyApp.YetAnotherRepo, username: "readonly_user"},
         ]
       )
+
+  ## Repo Discovery
+
+  The functions in this module operate on one or more Ecto repositories. The list of repositories
+  will default to those configured in the `:ecto_repos` application environment for your app,
+  which is how you normally configure the list of Repos for Ecto tasks, such as `mix
+  ecto.migrate`.
+
+  You can instead provide an explicit list of repos to backup by setting the `:ecto_repos` option
+  in the `:ecto_backup` application environment:
+
+      config :ecto_backup, ecto_repos: [MyApp.Repo, MyApp.AnotherRepo]
+
+  Or you can provide the list of repos in the `:repos` option of the backup function, see
+  `backup/1`.
 
   ## Telemetry Events
 

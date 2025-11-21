@@ -1,4 +1,7 @@
 defmodule EctoBackup.Error do
+  @moduledoc """
+  Exception module for EctoBackup errors.
+  """
   defexception [:reason, :term, :repo, :message]
 
   @impl true

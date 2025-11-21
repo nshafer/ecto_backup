@@ -1,4 +1,7 @@
 defmodule EctoBackup.ConfError do
+  @moduledoc """
+  Exception module for EctoBackup configuration errors.
+  """
   defexception [:reason, :repo, :value, :message]
 
   def message(%{message: message}) when is_binary(message), do: message
