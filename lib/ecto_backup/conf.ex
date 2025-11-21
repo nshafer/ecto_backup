@@ -182,10 +182,22 @@ defmodule EctoBackup.Conf do
         file
 
       {:ok, fun} when is_function(fun, 2) ->
-        fun.(repo, repo_config)
+        backup_file = fun.(repo, repo_config)
+
+        if is_binary(backup_file) do
+          backup_file
+        else
+          raise ConfError, reason: :invalid_backup_file, repo: repo, value: backup_file
+        end
 
       {:ok, {m, f, a}} when is_atom(m) and is_atom(f) and is_list(a) ->
-        apply(m, f, [repo, repo_config] ++ a)
+        backup_file = apply(m, f, [repo, repo_config] ++ a)
+
+        if is_binary(backup_file) do
+          backup_file
+        else
+          raise ConfError, reason: :invalid_backup_file, repo: repo, value: backup_file
+        end
 
       {:ok, other} ->
         raise ConfError, reason: :invalid_backup_file, repo: repo, value: other
@@ -196,9 +208,32 @@ defmodule EctoBackup.Conf do
   end
 
   defp default_backup_file!(repo, repo_config, options) do
+    backup_dir = get_backup_dir!(repo, repo_config, options)
+    Path.join(backup_dir, "#{repo_to_filename(repo)}_backup_#{filename_timestamp()}.db")
+  end
+
+  def get_backup_dir!(repo, repo_config, options) do
     case fetch(repo_config, options, :backup_dir) do
       {:ok, backup_dir} when is_binary(backup_dir) ->
-        Path.join(backup_dir, "#{repo_to_filename(repo)}_backup_#{filename_timestamp()}.db")
+        backup_dir
+
+      {:ok, fun} when is_function(fun, 2) ->
+        backup_dir = fun.(repo, repo_config)
+
+        if is_binary(backup_dir) do
+          backup_dir
+        else
+          raise ConfError, reason: :invalid_backup_dir, repo: repo, value: backup_dir
+        end
+
+      {:ok, {m, f, a}} when is_atom(m) and is_atom(f) and is_list(a) ->
+        backup_dir = apply(m, f, [repo, repo_config] ++ a)
+
+        if is_binary(backup_dir) do
+          backup_dir
+        else
+          raise ConfError, reason: :invalid_backup_dir, repo: repo, value: backup_dir
+        end
 
       {:ok, invalid} ->
         raise ConfError, reason: :invalid_backup_dir, repo: repo, value: invalid

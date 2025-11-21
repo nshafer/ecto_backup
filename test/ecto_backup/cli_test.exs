@@ -1,5 +1,6 @@
 defmodule EctoBackup.IOTest do
   use ExUnit.Case
+  use Patch
   alias EctoBackup.TestPGRepo
   alias EctoBackup.CLI
 
@@ -105,6 +106,30 @@ defmodule EctoBackup.IOTest do
       assert CLI.duration(3_600_000, :millisecond) == "1h 0m 0.0s"
       assert CLI.duration(3_600_150, :millisecond) == "1h 0m 0.15s"
       assert CLI.duration(3_660_500, :millisecond) == "1h 1m 0.5s"
+    end
+  end
+
+  describe "term_width/0" do
+    test "returns terminal width as integer" do
+      width = CLI.term_width()
+      assert is_integer(width)
+      assert width > 0
+    end
+
+    test "returns 80 when terminal width cannot be determined" do
+      # Simulate failure to get terminal width by temporarily overriding :io.columns/0
+      patch(:io, :columns, fn -> :error end)
+      width = CLI.term_width()
+      assert is_integer(width)
+      assert width == 80
+    end
+
+    test "returns actual terminal width when available" do
+      # Simulate successful retrieval of terminal width
+      patch(:io, :columns, fn -> {:ok, 100} end)
+      width = CLI.term_width()
+      assert is_integer(width)
+      assert width == 100
     end
   end
 end

@@ -12,6 +12,14 @@ defmodule EctoBackup.ConfTest do
     def config, do: nil
   end
 
+  def backup_file_fun(_repo, _repo_config, path) do
+    path
+  end
+
+  def raise_err(_repo, _repo_config) do
+    raise "Intentional exception for testing"
+  end
+
   describe "fetch/3" do
     test "fetches values from the given options" do
       Application.put_env(:ecto_backup, :foo, "no")
@@ -43,7 +51,7 @@ defmodule EctoBackup.ConfTest do
   end
 
   describe "get/4" do
-    test "fetches values or returns default" do
+    test "gets values or returns default" do
       assert "bar" = Conf.get(%{foo: "bar"}, %{}, :foo, "default")
       assert "default" = Conf.get(%{}, %{}, :foo, "default")
     end
@@ -86,19 +94,19 @@ defmodule EctoBackup.ConfTest do
       assert Exception.message(e) =~ "no default repositories found"
     end
 
-    test "raises on invalid repo specification" do
+    test "returns error on invalid repo specification" do
       assert {:error, e} = Conf.get_repo_configs([123])
       assert %ConfError{reason: :invalid_repo_spec} = e
       assert Exception.message(e) =~ "invalid repo specification"
     end
 
-    test "raises on invalid repo" do
+    test "returns error on invalid repo" do
       assert {:error, e} = Conf.get_repo_configs([ConfTest])
       assert %ConfError{reason: :invalid_repo} = e
       assert Exception.message(e) =~ "is not a valid Ecto.Repo module"
     end
 
-    test "raises when repo config is invalid" do
+    test "returns error when repo config is invalid" do
       assert {:error, e} = Conf.get_repo_configs([InvalidRepo])
       assert %ConfError{reason: :invalid_repo_config} = e
       assert Exception.message(e) =~ "invalid repo config returned from"
@@ -139,33 +147,81 @@ defmodule EctoBackup.ConfTest do
 
   describe "get_backup_file!/3" do
     test "returns backup file from options" do
-      assert {:ok, [{TestPGRepo, repo_config}]} = Conf.get_repo_configs([TestPGRepo])
       backup_file = "/path/to/backup.db"
-      options = %{backup_file: backup_file}
-      assert ^backup_file = Conf.get_backup_file!(TestPGRepo, repo_config, options)
+      assert ^backup_file = Conf.get_backup_file!(TestPGRepo, %{}, %{backup_file: backup_file})
+    end
+
+    test "returns backup file from repo config" do
+      backup_file = "/path/to/backup.db"
+      assert ^backup_file = Conf.get_backup_file!(TestPGRepo, %{backup_file: backup_file}, %{})
+    end
+
+    test "returns backup file from application env" do
+      backup_file = "/path/to/backup.db"
+      Application.put_env(:ecto_backup, :backup_file, backup_file)
+      assert ^backup_file = Conf.get_backup_file!(TestPGRepo, %{}, %{})
+      Application.delete_env(:ecto_backup, :backup_file)
+    end
+
+    test "can return backup file from function" do
+      backup_file = "/path/to/backup.db"
+      fun = fn _repo, _config -> backup_file end
+      assert ^backup_file = Conf.get_backup_file!(TestPGRepo, %{backup_file: fun}, %{})
+    end
+
+    test "raises error when backup_file function returns invalid value" do
+      fun = fn _repo, _config -> 123 end
+
+      assert_raise ConfError, ~r/invalid backup file path/, fn ->
+        Conf.get_backup_file!(TestPGRepo, %{backup_file: fun}, %{})
+      end
+    end
+
+    test "can return backup file from mfa tuple" do
+      backup_file = "/path/to/backup.db"
+      mfa = {__MODULE__, :backup_file_fun, [backup_file]}
+      assert ^backup_file = Conf.get_backup_file!(TestPGRepo, %{backup_file: mfa}, %{})
+    end
+
+    test "raises error when backup_file mfa returns invalid value" do
+      mfa = {__MODULE__, :backup_file_fun, [123]}
+
+      assert_raise ConfError, ~r/invalid backup file path/, fn ->
+        Conf.get_backup_file!(TestPGRepo, %{backup_file: mfa}, %{})
+      end
     end
 
     test "returns default backup file when not specified" do
-      assert {:ok, [{TestPGRepo, repo_config}]} = Conf.get_repo_configs([TestPGRepo])
-      options = %{backup_dir: "/tmp/backups"}
-      assert backup_file = Conf.get_backup_file!(TestPGRepo, repo_config, options)
+      assert backup_file = Conf.get_backup_file!(TestPGRepo, %{}, %{backup_dir: "/tmp/backups"})
       assert String.starts_with?(backup_file, "/tmp/backups/ecto_backup_test_pg_repo_backup_")
       assert String.ends_with?(backup_file, ".db")
     end
 
     test "raises error when given invalid backup_file" do
-      assert {:ok, [{TestPGRepo, repo_config}]} = Conf.get_repo_configs([TestPGRepo])
-
       assert_raise ConfError, ~r/invalid backup file path/, fn ->
-        Conf.get_backup_file!(TestPGRepo, repo_config, %{backup_file: 123})
+        Conf.get_backup_file!(TestPGRepo, %{}, %{backup_file: 123})
       end
     end
 
     test "throws error if nil backup_dir given" do
-      assert {:ok, [{TestPGRepo, repo_config}]} = Conf.get_repo_configs([TestPGRepo])
-
       assert_raise ConfError, ~r/invalid backup directory path/, fn ->
-        Conf.get_backup_file!(TestPGRepo, repo_config, %{backup_dir: nil})
+        Conf.get_backup_file!(TestPGRepo, %{}, %{backup_dir: nil})
+      end
+    end
+
+    test "raises error when backup_file function raises exception" do
+      fun = fn _repo, _config -> raise "Intentional exception for testing" end
+
+      assert_raise RuntimeError, "Intentional exception for testing", fn ->
+        Conf.get_backup_file!(TestPGRepo, %{backup_file: fun}, %{})
+      end
+    end
+
+    test "raises error when backup_file mfa raises exception" do
+      mfa = {__MODULE__, :raise_err, []}
+
+      assert_raise RuntimeError, "Intentional exception for testing", fn ->
+        Conf.get_backup_file!(TestPGRepo, %{backup_file: mfa}, %{})
       end
     end
   end
@@ -196,6 +252,65 @@ defmodule EctoBackup.ConfTest do
       assert {:error, e} = Conf.get_backup_files(repo_configs, %{})
       assert %ConfError{reason: :no_backup_dir_set} = e
       assert Exception.message(e) =~ "no backup directory is set"
+    end
+  end
+
+  describe "get_backup_dir!/3" do
+    test "returns backup_dir from options" do
+      backup_dir = "/custom/backup/dir"
+      assert ^backup_dir = Conf.get_backup_dir!(TestPGRepo, %{}, %{backup_dir: backup_dir})
+    end
+
+    test "returns backup_dir from repo config" do
+      backup_dir = "/custom/backup/dir"
+      assert ^backup_dir = Conf.get_backup_dir!(TestPGRepo, %{backup_dir: backup_dir}, %{})
+    end
+
+    test "returns backup_dir from application env" do
+      backup_dir = "/custom/backup/dir"
+      Application.put_env(:ecto_backup, :backup_dir, backup_dir)
+      assert ^backup_dir = Conf.get_backup_dir!(TestPGRepo, %{}, %{})
+      Application.delete_env(:ecto_backup, :backup_dir)
+    end
+
+    test "can return backup dir from function" do
+      backup_dir = "/custom/backup/dir"
+      fun = fn _repo, _config -> backup_dir end
+      assert ^backup_dir = Conf.get_backup_dir!(TestPGRepo, %{backup_dir: fun}, %{})
+    end
+
+    test "raises error when backup_dir function returns invalid value" do
+      fun = fn _repo, _config -> 123 end
+
+      assert_raise ConfError, ~r/invalid backup directory path/, fn ->
+        Conf.get_backup_dir!(TestPGRepo, %{backup_dir: fun}, %{})
+      end
+    end
+
+    test "can return backup dir from mfa tuple" do
+      backup_dir = "/custom/backup/dir"
+      mfa = {__MODULE__, :backup_file_fun, [backup_dir]}
+      assert ^backup_dir = Conf.get_backup_dir!(TestPGRepo, %{backup_dir: mfa}, %{})
+    end
+
+    test "raises error when backup_dir mfa returns invalid value" do
+      mfa = {__MODULE__, :backup_file_fun, [123]}
+
+      assert_raise ConfError, ~r/invalid backup directory path/, fn ->
+        Conf.get_backup_dir!(TestPGRepo, %{backup_dir: mfa}, %{})
+      end
+    end
+
+    test "raises error when given invalid backup_dir" do
+      assert_raise ConfError, ~r/invalid backup directory path/, fn ->
+        Conf.get_backup_dir!(TestPGRepo, %{}, %{backup_dir: 123})
+      end
+    end
+
+    test "raises error when no backup_dir found" do
+      assert_raise ConfError, ~r/no backup directory is set/, fn ->
+        Conf.get_backup_dir!(TestPGRepo, %{}, %{})
+      end
     end
   end
 end

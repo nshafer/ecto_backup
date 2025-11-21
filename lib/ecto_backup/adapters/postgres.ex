@@ -52,13 +52,14 @@ defmodule EctoBackup.Adapters.Postgres do
   @behaviour EctoBackup.Adapter
 
   import Ecto.Query, only: [from: 2]
+  alias EctoBackup.Conf
   alias EctoBackup.Error
 
   @impl true
   def backup(repo, repo_config, backup_file, options) do
     with(
-      {:ok, cmd} <- pg_dump_cmd(repo, repo_config),
-      {:ok, args} <- pg_dump_args(repo, repo_config, backup_file),
+      {:ok, cmd} <- pg_dump_cmd(repo, repo_config, options),
+      {:ok, args} <- pg_dump_args(repo, repo_config, backup_file, options),
       {:ok, env} <- pg_env(repo, repo_config),
       {:ok, env} <- create_pgpass_file(repo, env, repo_config),
       {:ok, table_count} <- get_table_count(repo)
@@ -163,8 +164,8 @@ defmodule EctoBackup.Adapters.Postgres do
     end
   end
 
-  defp pg_dump_cmd(repo, repo_config) do
-    cmd = Map.get(repo_config, :pg_dump_cmd, "pg_dump")
+  defp pg_dump_cmd(repo, repo_config, options) do
+    cmd = Conf.get(repo_config, options, :pg_dump_cmd, "pg_dump")
 
     case System.find_executable(cmd) do
       nil ->
@@ -181,8 +182,9 @@ defmodule EctoBackup.Adapters.Postgres do
     end
   end
 
-  defp pg_dump_args(repo, repo_config, backup_file) do
-    args = Map.get(repo_config, :pg_dump_args, ["--verbose", "--format=c", "--no-owner"])
+  defp pg_dump_args(repo, repo_config, backup_file, options) do
+    default_args = ["--verbose", "--format=c", "--no-owner"]
+    args = Conf.get(repo_config, options, :pg_dump_args, default_args)
 
     if Enum.any?(args, fn arg -> arg in ["-f", "--file"] end) do
       {:error,
