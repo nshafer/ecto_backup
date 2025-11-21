@@ -1,9 +1,13 @@
 defmodule EctoBackup.CLI do
   @moduledoc false
 
-  @doc false
-  @spec parse_args!([binary()]) :: map()
-  def parse_args!(args) do
+  @doc """
+  Parses command line arguments into an options map.
+
+  This raises an error if invalid arguments are provided.
+  """
+  @spec parse_backup_args!([binary()]) :: map()
+  def parse_backup_args!(args) do
     switches = [
       repo: [:string, :keep],
       backup_dir: :string,
@@ -18,7 +22,7 @@ defmodule EctoBackup.CLI do
       q: :quiet
     ]
 
-    {opts, _} = OptionParser.parse!(args, switches: switches, aliases: aliases)
+    {opts, _} = OptionParser.parse!(args, strict: switches, aliases: aliases)
 
     %{
       repos: Keyword.get_values(opts, :repo) |> Enum.map(&Module.concat([&1])),
