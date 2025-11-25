@@ -57,10 +57,43 @@ defmodule EctoBackup.ConfTest do
     end
   end
 
+  describe "get_repo_specs/1" do
+    test "returns repo specs from options" do
+      options = %{repos: [TestPGRepo, InvalidRepo]}
+      assert {:ok, [TestPGRepo, InvalidRepo], %{}} = Conf.get_repo_specs(options)
+    end
+
+    test "returns error if repos in config is not a list" do
+      assert {:error, e} = Conf.get_repo_specs(%{repos: :not_a_list})
+      assert %ConfError{reason: :invalid_repo_list} = e
+      assert Exception.message(e) =~ "invalid :repos configuration"
+    end
+
+    test "returns error if repos in app env is not a list" do
+      Application.put_env(:ecto_backup, :repos, :not_a_list)
+      on_exit(fn -> Application.delete_env(:ecto_backup, :repos) end)
+      assert {:error, e} = Conf.get_repo_specs(%{})
+      assert %ConfError{reason: :invalid_repo_list} = e
+      assert Exception.message(e) =~ "invalid :repos configuration"
+    end
+
+    test "returns default list" do
+      Application.put_env(:ecto_backup, :repos, [TestPGRepo])
+      on_exit(fn -> Application.delete_env(:ecto_backup, :repos) end)
+      assert {:ok, [TestPGRepo], _options} = Conf.get_repo_specs(%{})
+    end
+
+    test "returns error if no default repos are set" do
+      assert {:error, e} = Conf.get_repo_specs(%{})
+      assert %ConfError{reason: :no_default_repos} = e
+      assert Exception.message(e) =~ "no default repositories found"
+    end
+  end
+
   describe "get_repo_configs/1" do
     setup do
-      Application.put_env(:ecto_backup, :ecto_repos, [TestPGRepo])
-      on_exit(fn -> Application.delete_env(:ecto_backup, :ecto_repos) end)
+      Application.put_env(:ecto_backup, :repos, [TestPGRepo])
+      on_exit(fn -> Application.delete_env(:ecto_backup, :repos) end)
       :ok
     end
 
@@ -70,7 +103,7 @@ defmodule EctoBackup.ConfTest do
         password: "app_pass"
       )
 
-      assert {:ok, [{TestPGRepo, repo_config}]} = Conf.get_repo_configs([])
+      assert {:ok, [{TestPGRepo, repo_config}]} = Conf.get_repo_configs([TestPGRepo])
       assert repo_config[:hostname] == "localhost"
       assert repo_config[:database] == "ecto_backup_test"
       assert repo_config[:username] == "app_user"
@@ -87,11 +120,10 @@ defmodule EctoBackup.ConfTest do
       assert repo_config[:password] == "override_pass"
     end
 
-    test "returns error when no default repos are found" do
-      Application.delete_env(:ecto_backup, :ecto_repos)
+    test "returns error if list is empty" do
       assert {:error, e} = Conf.get_repo_configs([])
-      assert %ConfError{reason: :no_default_repos_in_mix} = e
-      assert Exception.message(e) =~ "no default repositories found"
+      assert %ConfError{reason: :invalid_repo_list} = e
+      assert Exception.message(e) =~ "invalid :repos configuration"
     end
 
     test "returns error on invalid repo specification" do
@@ -110,38 +142,6 @@ defmodule EctoBackup.ConfTest do
       assert {:error, e} = Conf.get_repo_configs([InvalidRepo])
       assert %ConfError{reason: :invalid_repo_config} = e
       assert Exception.message(e) =~ "invalid repo config returned from"
-    end
-  end
-
-  describe "get_default_repos/0" do
-    test "returns repos from :ecto_backup config" do
-      Application.put_env(:ecto_backup, :ecto_repos, [TestPGRepo])
-      assert {:ok, repos} = Conf.get_default_repos()
-      assert repos == [TestPGRepo]
-      Application.delete_env(:ecto_backup, :ecto_repos)
-    end
-
-    test "returns repos from Mix project when available" do
-      patch(Mix.Project, :config, fn -> [app: :ecto_backup_test] end)
-      Application.put_env(:ecto_backup_test, :ecto_repos, [TestPGRepo])
-      assert {:ok, repos} = Conf.get_default_repos()
-      assert repos == [TestPGRepo]
-      Application.delete_env(:ecto_backup_test, :ecto_repos)
-    end
-
-    test "returns repos from umbrella Mix project when available" do
-      patch(Mix.Project, :config, fn -> [apps_path: "apps"] end)
-      patch(Mix.Project, :apps_paths, fn -> %{test_app: "apps/test_app"} end)
-      patch(Mix.Project, :deps_apps, fn -> [:test_app] end)
-      Application.put_env(:test_app, :ecto_repos, [TestPGRepo])
-      assert {:ok, repos} = Conf.get_default_repos()
-      assert repos == [TestPGRepo]
-      Application.delete_env(:test_app, :ecto_repos)
-    end
-
-    test "returns error when no repos found" do
-      patch(Mix.Project, :config, fn -> [app: :ecto_backup_test] end)
-      assert {:error, %ConfError{reason: :no_default_repos_in_mix}} = Conf.get_default_repos()
     end
   end
 

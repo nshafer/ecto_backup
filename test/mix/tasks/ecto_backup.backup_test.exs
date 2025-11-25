@@ -41,8 +41,8 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
     end
 
     test "successfully backups up a couple default repos", %{backup_dir: backup_dir} do
-      Application.put_env(:ecto_backup, :ecto_repos, [TestPGRepo, SecondPGRepo])
-      on_exit(fn -> Application.delete_env(:ecto_backup, :ecto_repos) end)
+      Application.put_env(:ecto_backup, :repos, [TestPGRepo, SecondPGRepo])
+      on_exit(fn -> Application.delete_env(:ecto_backup, :repos) end)
 
       Application.put_env(:ecto_backup, :backup_dir, backup_dir)
       on_exit(fn -> Application.delete_env(:ecto_backup, :backup_dir) end)

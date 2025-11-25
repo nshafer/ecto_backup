@@ -76,22 +76,23 @@ defmodule EctoBackup do
   each repository in turn, returning a list of results for each repo. If any repo backup fails,
   the overall operation will still attempt to continue to back up the remaining repos.
 
-  Returns a list of results on success which is a list of tuples of `{:ok,
-  repo, backup_file}` or `{:error, repo, reason}` for each repo backed up. Each `backup_file` is the
-  path to the created backup.
+  Returns a list of results on success which is a list of tuples of `{:ok, repo, backup_file}` or
+  `{:error, repo, reason}` for each repo backed up. Each `backup_file` is the path to the created
+  backup.
 
   ## Options
 
     - `:repos` - A list of repositories to back up. If not provided, the default repositories from
-      the application configuration will be used. See the [Repo Discovery](`backup/1#repo-discovery`)
-      and [Individual Repo Configuration](`EctoBackup#module-individual-repo-configuration`) sections for more
-      details.
+      the application configuration will be used. See the
+      [Configuration](`backup/1#configuration`) and [Individual Repo
+      Configuration](`EctoBackup#module-individual-repo-configuration`) sections for more details.
     - `:backup_dir` - The directory where backup files will be stored if not individually
       specified. This directory must exist and be writable before calling this function. Can be a
       string, 2-arity function that takes the repo and repo_config and returns a string, or a MFA
-      tuple to a function that takes args prepended with the repo and repo_config and returns a string.
-    - Other options may be provided which will be passed to the adapter's backup function. See
-      the documentation for the specific adapter being used for more details on supported options.
+      tuple to a function that takes args prepended with the repo and repo_config and returns a
+      string.
+    - Other options may be provided which will be passed to the adapter's backup function. See the
+      documentation for the specific adapter being used for more details on supported options.
 
   ## Examples:
 
@@ -111,20 +112,15 @@ defmodule EctoBackup do
         ]
       )
 
-  ## Repo Discovery
+  ## Configuration
 
-  The functions in this module operate on one or more Ecto repositories. The list of repositories
-  will default to those configured in the `:ecto_repos` application environment for your app,
-  which is how you normally configure the list of Repos for Ecto tasks, such as `mix
-  ecto.migrate`.
+  Typically the backup configuration is set in your application's configuration files so that
+  the various methods of invoking backups (mix tasks, release tasks, scheduled jobs) can all share the same
+  configuration. Example:
 
-  You can instead provide an explicit list of repos to backup by setting the `:ecto_repos` option
-  in the `:ecto_backup` application environment:
-
-      config :ecto_backup, ecto_repos: [MyApp.Repo, MyApp.AnotherRepo]
-
-  Or you can provide the list of repos in the `:repos` option of the backup function, see
-  `backup/1`.
+      config :ecto_backup,
+        repos: [MyApp.Repo, MyApp.AnotherRepo],
+        backup_dir: "/var/backups/myapp"
 
   ## Telemetry Events
 
@@ -142,9 +138,9 @@ defmodule EctoBackup do
   @spec backup(keyword() | map()) :: {:ok, [backup_result()]} | {:error, term()}
   def backup(opts \\ %{}) do
     options = Map.new(opts)
-    {repo_specs, options} = Map.pop(options, :repos, [])
 
     with(
+      {:ok, repo_specs, options} <- Conf.get_repo_specs(options),
       {:ok, repo_configs} <- Conf.get_repo_configs(repo_specs),
       {:ok, backup_files} <- Conf.get_backup_files(repo_configs, options)
     ) do

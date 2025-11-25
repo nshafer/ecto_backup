@@ -25,12 +25,12 @@ defmodule EctoBackup.PGBackupTest do
 
   describe "TestPGRepo - EctoBackup.backup/0" do
     test "can backup the default databases", %{backup_dir: backup_dir} do
-      Application.put_env(:ecto_backup, :ecto_repos, [TestPGRepo])
+      Application.put_env(:ecto_backup, :repos, [TestPGRepo])
       Application.put_env(:ecto_backup, :backup_dir, backup_dir)
       assert {:ok, [{:ok, TestPGRepo, backup_file}]} = EctoBackup.backup()
       assert Postgres.valid_backup_file?(backup_file, ["test_table_one", "test_table_two"])
       File.rm_rf(backup_file)
-      Application.delete_env(:ecto_backup, :ecto_repos)
+      Application.delete_env(:ecto_backup, :repos)
       Application.delete_env(:ecto_backup, :backup_dir)
     end
   end
@@ -108,7 +108,7 @@ defmodule EctoBackup.PGBackupTest do
     test "returns error if no repos are specified" do
       opts = [backup_dir: "/tmp"]
 
-      assert {:error, %ConfError{reason: :no_default_repos_in_mix}} = EctoBackup.backup(opts)
+      assert {:error, %ConfError{reason: :no_default_repos}} = EctoBackup.backup(opts)
     end
 
     test "returns error if no backup_dir or backup_file is configured" do

@@ -6,27 +6,22 @@ defmodule EctoBackup.ConfError do
 
   def message(%{message: message}) when is_binary(message), do: message
 
-  def message(%{reason: :no_default_repos_in_mix}) do
-    """
-    no default repositories found, please configure :ecto_repos in your application configuration
-    or in the :ecto_backup application configuration. Examples:
-
-        config :my_app, ecto_repos: [MyApp.Repo]
-        config :ecto_backup, ecto_repos: [MyApp.Repo]
-    """
+  def message(%{reason: :invalid_repo_list, value: repo_list}) do
+    "invalid :repos configuration, expected a list of repo " <>
+      "modules or {module, config} tuples, got: #{inspect(repo_list)}"
   end
 
   def message(%{reason: :no_default_repos}) do
     """
-    no default repositories found, please configure :ecto_repos in the :ecto_backup application
-    configuration. This is required when Mix is not available. Example:
+    no default repositories found, please configure :repos in the :ecto_backup application
+    configuration. Example:
 
-        config :ecto_backup, ecto_repos: [MyApp.Repo]
+        config :ecto_backup, repos: [MyApp.Repo]
     """
   end
 
   def message(%{reason: :invalid_repo_spec, value: repo_spec}) do
-    "invalid repo specification, expected atom or {atom, keyword}, got: #{inspect(repo_spec)}"
+    "invalid repo specification, expected atom or {module, keyword}, got: #{inspect(repo_spec)}"
   end
 
   def message(%{reason: :invalid_repo_config, repo: repo, value: config}) do

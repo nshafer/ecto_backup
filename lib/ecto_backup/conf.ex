@@ -65,15 +65,33 @@ defmodule EctoBackup.Conf do
   # patching/mocking.
 
   @doc false
-  # Retrieves the repository configurations for the given list of repository specifications. If
-  # the list is empty, retrieves the default repositories from application configuration. Merges
-  # configurations from the repo, application env, and overrides.
+  # Retrieves the repository specifications from the provided options or application environment.
+  # Returns a list of repo specifications or an error if the configuration is invalid.
+  @spec get_repo_specs(options()) :: {:ok, [repo_spec()], options()} | {:error, Exception.t()}
+  def get_repo_specs(%{repos: repo_specs} = options) when is_list(repo_specs) do
+    {:ok, repo_specs, Map.delete(options, :repos)}
+  end
+
+  def get_repo_specs(%{repos: repo_specs}) do
+    {:error, ConfError.exception(reason: :invalid_repo_list, value: repo_specs)}
+  end
+
+  def get_repo_specs(options) do
+    case Application.fetch_env(:ecto_backup, :repos) do
+      {:ok, repos} when is_list(repos) -> {:ok, repos, options}
+      {:ok, invalid} -> {:error, ConfError.exception(reason: :invalid_repo_list, value: invalid)}
+      :error -> {:error, ConfError.exception(reason: :no_default_repos)}
+    end
+  end
+
+  @doc false
+  # Retrieves the repository configurations for the given list of repository specifications.
+  # Merges configurations from the repo, application env, and overrides. Returns a list of
+  # tuples of `{repo_module, merged_config}` or an error if any configuration is invalid.
   @spec get_repo_configs([repo_spec()]) ::
           {:ok, [{Ecto.Repo.t(), repo_config()}]} | {:error, Exception.t()}
   def get_repo_configs([]) do
-    with {:ok, repos} <- get_default_repos() do
-      get_repo_configs(repos)
-    end
+    {:error, ConfError.exception(reason: :invalid_repo_list, value: [])}
   end
 
   def get_repo_configs(repo_specs) when is_list(repo_specs) do
@@ -114,48 +132,8 @@ defmodule EctoBackup.Conf do
   end
 
   @doc false
-  # Retrieves the default repositories from application configuration. First checks
-  # for an explicit `:ecto_repos` config in the `:ecto_backup` app env, then
-  # falls back to checking the current Mix project if available.
-  @spec get_default_repos() :: {:ok, [Ecto.Repo.t()]} | {:error, Exception.t()}
-  def get_default_repos() do
-    # Check for an explicit config for `:ecto_repos` in `:ecto_backup` app env
-    case Application.fetch_env(:ecto_backup, :ecto_repos) do
-      {:ok, repos} when is_list(repos) ->
-        {:ok, repos}
-
-      :error ->
-        # If Mix is available, then try to get the repos from the current project, which is what Ecto
-        # requires for use of its tasks: https://hexdocs.pm/ecto/Ecto.html#module-mix-tasks-and-generators
-        if Code.ensure_loaded?(Mix.Project) do
-          apps =
-            if apps_paths = Mix.Project.apps_paths() do
-              Enum.filter(Mix.Project.deps_apps(), &is_map_key(apps_paths, &1))
-            else
-              [Mix.Project.config()[:app]]
-            end
-
-          repos =
-            apps
-            |> Enum.flat_map(fn app ->
-              Application.load(app)
-              Application.get_env(app, :ecto_repos, [])
-            end)
-            |> Enum.uniq()
-
-          case repos do
-            [] -> {:error, ConfError.exception(reason: :no_default_repos_in_mix)}
-            repos -> {:ok, repos}
-          end
-        else
-          {:error, ConfError.exception(reason: :no_default_repos)}
-        end
-    end
-  end
-
-  @doc false
   # Return a list of backup file paths for the given list of repo configurations and options. If
-  # any repo configuration does not have a valid backup file path, raises an error.
+  # any repo configuration does not have a valid backup file path, returns an error.
   @spec get_backup_files([{Ecto.Repo.t(), repo_config()}], options()) ::
           {:ok, [String.t()]} | {:error, Exception.t()}
   def get_backup_files(repo_configs, options) do

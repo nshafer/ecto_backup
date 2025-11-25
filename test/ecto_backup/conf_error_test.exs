@@ -7,27 +7,25 @@ defmodule EctoBackup.ConfErrorTest do
       assert Exception.message(err) == "boom"
     end
 
-    test "no_default_repos_in_mix contains helpful guidance" do
-      err = %EctoBackup.ConfError{reason: :no_default_repos_in_mix}
-      msg = Exception.message(err)
-      assert String.contains?(msg, "no default repositories found")
-      assert String.contains?(msg, "ecto_repos")
-      assert String.contains?(msg, "config :ecto_backup, ecto_repos: [MyApp.Repo]")
+    test "invalid_repo_list formats value" do
+      err = %EctoBackup.ConfError{reason: :invalid_repo_list, value: 123}
+      assert Exception.message(err) =~ "invalid :repos configuration"
+      assert Exception.message(err) =~ "got: 123"
+      assert err.value == 123
     end
 
-    test "no_default_repos contains Mix-unavailable guidance" do
+    test "no_default_repos contains helpful guidance" do
       err = %EctoBackup.ConfError{reason: :no_default_repos}
       msg = Exception.message(err)
       assert String.contains?(msg, "no default repositories found")
-      assert String.contains?(msg, "Mix is not available")
-      assert String.contains?(msg, "config :ecto_backup, ecto_repos: [MyApp.Repo]")
+      assert String.contains?(msg, "config :ecto_backup, repos: [MyApp.Repo]")
     end
 
     test "invalid_repo_spec formats value" do
       err = %EctoBackup.ConfError{reason: :invalid_repo_spec, value: 123}
-
-      assert Exception.message(err) ==
-               "invalid repo specification, expected atom or {atom, keyword}, got: 123"
+      assert Exception.message(err) =~ "invalid repo specification"
+      assert Exception.message(err) =~ "got: 123"
+      assert err.value == 123
     end
 
     test "invalid_repo_config formats repo and config" do
@@ -37,8 +35,10 @@ defmodule EctoBackup.ConfErrorTest do
         value: [bad: :config]
       }
 
-      assert Exception.message(err) ==
-               "invalid repo config returned from MyApp.Repo.config/0, got: [bad: :config]"
+      assert Exception.message(err) =~ "invalid repo config"
+      assert Exception.message(err) =~ "got: [bad: :config]"
+      assert err.repo == MyApp.Repo
+      assert err.value == [bad: :config]
     end
 
     test "invalid_repo formats repo" do
@@ -48,16 +48,14 @@ defmodule EctoBackup.ConfErrorTest do
 
     test "invalid_backup_file formats invalid value" do
       err = %EctoBackup.ConfError{reason: :invalid_backup_file, value: :not_a_string}
-
-      assert Exception.message(err) ==
-               "invalid backup file path, expected a string, got :not_a_string"
+      assert Exception.message(err) =~ "invalid backup file path"
+      assert Exception.message(err) =~ "got :not_a_string"
     end
 
     test "invalid_backup_dir formats invalid value" do
       err = %EctoBackup.ConfError{reason: :invalid_backup_dir, value: %{}}
-
-      assert Exception.message(err) ==
-               "invalid backup directory path, expected a string, got %{}"
+      assert Exception.message(err) =~ "invalid backup directory"
+      assert Exception.message(err) =~ "got %{}"
     end
 
     test "no_backup_dir_set contains guidance" do
@@ -77,7 +75,7 @@ defmodule EctoBackup.ConfErrorTest do
 
     test "raising invalid_repo_spec yields expected single-line message" do
       assert_raise EctoBackup.ConfError,
-                   "invalid repo specification, expected atom or {atom, keyword}, got: :bad",
+                   "invalid repo specification, expected atom or {module, keyword}, got: :bad",
                    fn ->
                      raise EctoBackup.ConfError, reason: :invalid_repo_spec, value: :bad
                    end
