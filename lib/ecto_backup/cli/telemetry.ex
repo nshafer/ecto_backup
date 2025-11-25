@@ -42,7 +42,8 @@ defmodule EctoBackup.CLI.Telemetry do
         "Starting backups for #{num_repos} repositories:  ",
         repos
         |> Enum.map(fn {repo, _config} -> CLI.format_repo(repo) end)
-        |> Enum.intersperse(", ")
+        |> Enum.intersperse(", "),
+        "\n"
       ])
     end
   end
@@ -62,17 +63,35 @@ defmodule EctoBackup.CLI.Telemetry do
   def handle_event([:ecto_backup, :backup, :repo, :start], _, metadata, _) do
     %{repo: repo, repo_config: repo_config, backup_file: backup_file} = metadata
 
+    padding = 15
+
+    labels = [
+      database: "Database",
+      username: "Username",
+      hostname: "Hostname",
+      port: "Port",
+      socket: "Socket",
+      socket_dir: "Socket Dir"
+    ]
+
+    summary =
+      Enum.map(labels, fn {key, label} ->
+        case repo_config[key] do
+          nil -> nil
+          value -> [String.pad_trailing("  #{label}:", padding), "\"#{value}\"\n"]
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
     message =
       [
         "Starting backup at #{CLI.timestamp()}\n",
-        "  Database:    \"#{repo_config[:database]}\"\n",
-        if(repo_config[:username], do: "  Username:    \"#{repo_config[:username]}\"\n"),
-        if(repo_config[:hostname], do: "  Hostname:    \"#{repo_config[:hostname]}\"\n"),
-        if(repo_config[:port], do: "  Port:       \"#{repo_config[:port]}\"\n"),
-        "  Backup File: \"#{backup_file}\"\n"
+        summary,
+        String.pad_trailing("  Backup File:", padding),
+        "\"#{backup_file}\""
       ]
 
-    CLI.info(repo, Enum.reject(message, &is_nil/1))
+    CLI.info(repo, message)
   end
 
   def handle_event([:ecto_backup, :backup, :repo, :stop], measurements, metadata, _) do
