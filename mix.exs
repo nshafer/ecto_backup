@@ -18,6 +18,13 @@ defmodule EctoBackup.MixProject do
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
+  def application do
+    [
+      extra_applications: [:logger],
+      mod: {EctoBackup.Application, []}
+    ]
+  end
+
   defp test_coverage do
     [
       ignore_modules: [
