@@ -1,5 +1,93 @@
 defmodule EctoBackup.CLI do
+  # Command Line Interface (CLI) utilities for EctoBackup.
   @moduledoc false
+
+  alias EctoBackup.CLI
+
+  @doc """
+  Attaches a Command Line Interface.
+
+  This sets up standard output for displaying progress and messages during backup and restore
+  operations via telemetry events from `EctoBackup`.
+  """
+  def attach(opts) do
+    CLI.Telemetry.attach(opts)
+  end
+
+  def detach() do
+    CLI.Telemetry.detach()
+  end
+
+  @doc """
+  Returns the current shell module used for input and output.
+  """
+  @spec shell() :: module()
+  def shell() do
+    EctoBackup.State.get(:shell, EctoBackup.CLI.Shell.IO)
+  end
+
+  @doc """
+  Sets the shell module to be used for input and output.
+  """
+  @spec shell(module :: module()) :: :ok
+  def shell(shell) do
+    EctoBackup.State.put(:shell, shell)
+  end
+
+  @doc """
+  Sends an informational message to the current shell.
+  """
+  def info(message), do: shell().info(message)
+
+  @doc """
+  Sends an informational message to the current shell, prefixed with the repository name.
+  """
+  def info(repo, message), do: shell().info(["[", format_repo(repo), "] ", message])
+
+  @doc """
+  Sends a warning message to the current shell.
+  """
+  def warning(message), do: shell().warning(message)
+
+  @doc """
+  Sends a warning message to the current shell, prefixed with the repository name.
+  """
+  def warning(repo, message), do: shell().warning(["[#{inspect(repo)}] ", message])
+
+  @doc """
+  Sends an error message to the current shell.
+  """
+  def error(message), do: shell().error(message)
+
+  @doc """
+  Sends an error message to the current shell, prefixed with the repository name.
+  """
+  def error(repo, message), do: shell().error(["[#{inspect(repo)}] ", message])
+
+  @doc """
+  Updates the progress status line in the current shell.
+  """
+  def progress(subject, completed, total, label, term_width \\ term_width()) do
+    output = format_progress(subject, completed, total, label, term_width)
+    shell().status(output)
+  end
+
+  @doc """
+  Clears the progress status line in the current shell.
+  """
+  def reset_progress() do
+    shell().status(nil)
+  end
+
+  @doc """
+  Prints a summary of backup or restore results to the current shell.
+  """
+  def summarize_results(results) do
+    info([
+      "Backup Summary:\n",
+      format_results_summary(results)
+    ])
+  end
 
   @doc """
   Parses command line arguments into an options map.
@@ -43,45 +131,11 @@ defmodule EctoBackup.CLI do
   defp maybe_put_option(opts, key, value, _), do: Map.put(opts, key, value)
 
   @doc """
-  Formats a log message for terminal output using ANSI escape sequences.
-
-  The log message includes a timestamp, log level, and the provided message. The log level is
-  color-coded for better visibility in the terminal.
-
-  This should be formatted with `IO.ANSI.format/1` before being printed to the terminal with
-  `IO.puts/1`, as a newline is not included. This includes a carriage return and clear line ANSI
-  code at the start to overwrite the current line, which is useful when printing log messages
-  while a progress bar is being displayed.
-  """
-  def format_log(level, message) do
-    level_color =
-      case level do
-        :info -> :default_color
-        :warning -> :yellow
-        :error -> :red
-        _ -> :default_color
-      end
-
-    [
-      [?\r, :clear_line],
-      level_color,
-      message
-    ]
-  end
-
-  @doc """
   Formats a progress bar for terminal output using ANSI escape sequences.
 
-  The progress bar includes the subject, a counter, a visual bar, and a percentage. The width of
-  the progress bar is dynamically calculated based on the terminal width.
-
-  This should be formatted with `IO.ANSI.format/1` before being printed to the terminal with
-  `IO.write/1` and not `IO.puts/1`, to avoid adding newlines. This leaves the cursor in the last
-  column of the terminal, so if anything prints after this, it should appear on a new line, but
-  this is not guaranteed. If you desire to print anything to the screen, you should print a
-  carriage return followed by a `:clear_line` ANSI code first so that the progress bar is erased.
+  The progress bar includes the subject, a counter, a visual bar, and a percentage.
   """
-  def format_progress(subject, completed, total, label, term_width \\ term_width()) do
+  def format_progress(subject, completed, total, label, term_width) do
     # Counter is "15/36" or "45/145 MiB"
     counter = "#{completed}/#{total}#{if label, do: " #{label}", else: ""}"
 
@@ -99,7 +153,7 @@ defmodule EctoBackup.CLI do
     subject_width = term_width - (byte_size(counter) + byte_size(percent) + byte_size(bar) + 4)
     subject = String.slice(subject, 0, subject_width) |> String.pad_trailing(subject_width)
 
-    [?\r, :clear_line, :bright, subject, :reset, " ", counter, " ", bar, " ", percent, " "]
+    [:bright, subject, :normal, " ", counter, " ", bar, " ", percent, " "]
   end
 
   @doc """

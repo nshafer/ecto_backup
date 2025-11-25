@@ -6,6 +6,47 @@ defmodule EctoBackup.IOTest do
 
   doctest EctoBackup.CLI
 
+  describe "logging functions" do
+    setup do
+      # Set the CLI shell to Process to send messages to the test process
+      EctoBackup.CLI.shell(EctoBackup.CLI.Shell.Process)
+
+      # Ensure no leftover messages in the inbox before each test
+      EctoBackup.CLI.Shell.Process.flush()
+      :ok
+    end
+
+    test "prints info message" do
+      assert :ok == CLI.info("This is an info message")
+      assert_received {:ecto_backup_shell, :info, "This is an info message"}
+
+      assert :ok = CLI.info(TestRepo, "This is a repo info message")
+      assert_received {:ecto_backup_shell, :info, "[TestRepo] This is a repo info message"}
+    end
+
+    test "prints warning message" do
+      assert :ok == CLI.warning("This is a warning message")
+      assert_received {:ecto_backup_shell, :warning, "This is a warning message"}
+
+      assert :ok = CLI.warning(TestRepo, "This is a repo warning message")
+      assert_received {:ecto_backup_shell, :warning, "[TestRepo] This is a repo warning message"}
+    end
+
+    test "prints error message" do
+      assert :ok == CLI.error("This is an error message")
+      assert_received {:ecto_backup_shell, :error, "This is an error message"}
+
+      assert :ok = CLI.error(TestRepo, "This is a repo error message")
+      assert_received {:ecto_backup_shell, :error, "[TestRepo] This is a repo error message"}
+    end
+
+    test "sets progress bar as status" do
+      assert :ok == CLI.progress("This is a status message", 10, 100, "MiB", 70)
+      status = "This is a status message     10/100 MiB [##--------------------]  10% "
+      assert_received {:ecto_backup_shell, :status, ^status}
+    end
+  end
+
   describe "parse_backup_args!/1" do
     test "parses command line arguments into options map" do
       args = [
@@ -25,45 +66,17 @@ defmodule EctoBackup.IOTest do
     end
   end
 
-  describe "format_log/2" do
-    test "formats log messages with ANSI codes" do
-      log_message = CLI.format_log(:info, "Backup started")
-      assert is_list(log_message)
-      log_message = List.flatten(log_message)
-      assert Enum.any?(log_message, fn code -> code == :default_color end)
-      assert Enum.any?(log_message, fn msg -> msg == "Backup started" end)
-
-      log_message = CLI.format_log(:warning, "Backup warning")
-      assert is_list(log_message)
-      log_message = List.flatten(log_message)
-      assert Enum.any?(log_message, fn code -> code == :yellow end)
-      assert Enum.any?(log_message, fn msg -> msg == "Backup warning" end)
-
-      log_message = CLI.format_log(:error, "Backup failed")
-      assert is_list(log_message)
-      log_message = List.flatten(log_message)
-      assert Enum.any?(log_message, fn code -> code == :red end)
-      assert Enum.any?(log_message, fn msg -> msg == "Backup failed" end)
-
-      log_message = CLI.format_log(:debug, "Debug message")
-      assert is_list(log_message)
-      log_message = List.flatten(log_message)
-      assert Enum.any?(log_message, fn code -> code == :default_color end)
-      assert Enum.any?(log_message, fn msg -> msg == "Debug message" end)
-    end
-  end
-
   describe "format_progress/4" do
     test "formats progress bar with subject and label" do
       progress_bar = CLI.format_progress("EctoBackup.TestPGRepo", 15, 36, "MiB", 70)
       str = IO.ANSI.format(progress_bar, false) |> IO.chardata_to_string()
-      assert str == "\rEctoBackup.TestPGRepo         15/36 MiB [#########-------------]  41% "
+      assert str == "EctoBackup.TestPGRepo         15/36 MiB [#########-------------]  41% "
     end
 
     test "formats progress bar without label" do
       progress_bar = CLI.format_progress("EctoBackup.TestPGRepo", 45, 145, nil, 70)
       str = IO.ANSI.format(progress_bar, false) |> IO.chardata_to_string()
-      assert str == "\rEctoBackup.TestPGRepo            45/145 [######----------------]  31% "
+      assert str == "EctoBackup.TestPGRepo            45/145 [######----------------]  31% "
     end
 
     test "formats progress bar with long subject and label" do
@@ -71,7 +84,7 @@ defmodule EctoBackup.IOTest do
       progress_bar = CLI.format_progress(subject, 300, 1000, "GB", 70)
       str = IO.ANSI.format(progress_bar, false) |> IO.chardata_to_string()
 
-      assert str == "\rA long subject that exceeds 300/1000 GB [######----------------]  30% "
+      assert str == "A long subject that exceeds 300/1000 GB [######----------------]  30% "
     end
   end
 
