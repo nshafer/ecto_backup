@@ -26,4 +26,12 @@ defmodule EctoBackup.CLI.Shell.ProcessTest do
     flush()
     refute_received {:ecto_backup_shell, _, _}
   end
+
+  test "flush/1 with callback invokes callback for each message" do
+    info("Message 1")
+    warning("Message 2")
+    flush(fn msg -> send(self(), {:flush_test, msg}) end)
+    assert_received {:flush_test, {:ecto_backup_shell, :info, "Message 1"}}
+    assert_received {:flush_test, {:ecto_backup_shell, :warning, "Message 2"}}
+  end
 end
