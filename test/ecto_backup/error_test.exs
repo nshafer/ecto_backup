@@ -9,18 +9,18 @@ defmodule EctoBackup.ErrorTest do
 
     test "formats with reason when repo is nil" do
       err = %EctoBackup.Error{reason: :timeout, repo: nil}
-      assert Exception.message(err) == "error :timeout"
+      assert Exception.message(err) == "error: :timeout"
     end
 
     test "formats with reason and repo when repo present" do
       err = %EctoBackup.Error{reason: :connection_error, repo: MyApp.Repo}
-      assert Exception.message(err) == "error (:connection_error) for repo MyApp.Repo"
+      assert Exception.message(err) == "error (MyApp.Repo): :connection_error"
     end
   end
 
   describe "raise" do
     test "asserts message with repo nil" do
-      assert_raise EctoBackup.Error, "error :oops", fn ->
+      assert_raise EctoBackup.Error, "error: :oops", fn ->
         raise EctoBackup.Error, reason: :oops, repo: nil
       end
     end

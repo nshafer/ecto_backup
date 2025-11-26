@@ -65,6 +65,29 @@ defmodule EctoBackup.CLI do
   def error(repo, message), do: shell().error(["[#{inspect(repo)}] ", message])
 
   @doc """
+  Sends a fatal error message to the current shell and exits the program.
+  """
+  def fatal(message_or_exception, exit_status \\ 1)
+
+  def fatal(message, exit_status) when is_binary(message) do
+    fatal(EctoBackup.Error.exception(message), exit_status)
+  end
+
+  def fatal(%name{} = exception, exit_status) do
+    mod = name |> Module.split() |> hd()
+
+    label =
+      case exception do
+        %EctoBackup.ConfError{} -> "** (EctoBackup) Configuration error:"
+        %EctoBackup.Error{} -> "** (EctoBackup) Fatal error:"
+        _ -> "** (#{mod}) Error"
+      end
+
+    error("#{label} #{Exception.message(exception)}")
+    exit({:shutdown, exit_status})
+  end
+
+  @doc """
   Updates the progress status line in the current shell.
   """
   def progress(subject, completed, total, label, term_width \\ term_width()) do
@@ -80,13 +103,34 @@ defmodule EctoBackup.CLI do
   end
 
   @doc """
-  Prints a summary of backup or restore results to the current shell.
+  Prints a summary of backup results to the current shell.
   """
-  def summarize_results(results) do
-    info([
-      "Backup Summary:\n",
-      format_results_summary(results)
-    ])
+  def summarize_backup_results(results) do
+    if has_errors?(results) do
+      error([
+        if(shell() == EctoBackup.CLI.Shell.Quiet, do: "\n", else: ""),
+        "Some backups completed with errors:\n",
+        format_results_summary(results)
+      ])
+    else
+      info([
+        "Backup Summary:\n",
+        format_results_summary(results)
+      ])
+    end
+  end
+
+  def exit_if_errors(results, exit_status \\ 1) do
+    if has_errors?(results) do
+      exit({:shutdown, exit_status})
+    end
+  end
+
+  defp has_errors?(results) do
+    Enum.any?(results, fn
+      {:error, _, _} -> true
+      _ -> false
+    end)
   end
 
   @doc """
@@ -176,7 +220,7 @@ defmodule EctoBackup.CLI do
             [:green, "✔", :default_color],
             " ",
             format_repo(repo),
-            " ",
+            ": ",
             backup_file,
             "\n"
           ]
@@ -186,7 +230,7 @@ defmodule EctoBackup.CLI do
             [:red, "✘", :default_color],
             " ",
             format_repo(repo),
-            " ",
+            ": ",
             :red,
             Exception.message(error),
             "\n"

@@ -7,14 +7,22 @@ defmodule EctoBackup.ConfError do
   def message(%{message: message}) when is_binary(message), do: message
 
   def message(%{reason: :invalid_repo_list, value: repo_list}) do
-    "invalid :repos configuration, expected a list of repo " <>
-      "modules or {module, config} tuples, got: #{inspect(repo_list)}"
+    """
+    invalid :repos configuration, expected a list of repo modules
+    or {module, config} tuples
+
+    Got value:
+
+        #{inspect(repo_list)}
+    """
   end
 
   def message(%{reason: :no_default_repos}) do
     """
-    no default repositories found, please configure :repos in the :ecto_backup application
-    configuration. Example:
+    no default repositories found, please configure :repos in
+    the :ecto_backup application configuration
+
+    Example:
 
         config :ecto_backup, repos: [MyApp.Repo]
     """
@@ -42,8 +50,11 @@ defmodule EctoBackup.ConfError do
 
   def message(%{reason: :no_backup_dir_set}) do
     """
-    no backup directory is set, so a backup file cannot be generated, please set the :backup_dir
-    option or specify a :backup_file in the repo configuration. Example:
+    no backup directory is set, so a backup file cannot be generated, please
+    set the :backup_dir option or specify a :backup_file in the repo
+    configuration
+
+    Example:
 
         config :ecto_backup, backup_dir: "/path/to/backup/dir"
     """

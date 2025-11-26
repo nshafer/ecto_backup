@@ -2,6 +2,7 @@ defmodule EctoBackup.IOTest do
   use ExUnit.Case
   use Patch
   alias EctoBackup.TestPGRepo
+  alias EctoBackup.SecondPGRepo
   alias EctoBackup.CLI
 
   doctest EctoBackup.CLI
@@ -39,6 +40,44 @@ defmodule EctoBackup.IOTest do
       assert :ok = CLI.error(TestRepo, "This is a repo error message")
       assert_received {:ecto_backup_shell, :error, "[TestRepo] This is a repo error message"}
     end
+  end
+
+  describe "fatal/2" do
+    test "fatal with string message exits with default status" do
+      assert catch_exit(CLI.fatal("Fatal error occurred")) == {:shutdown, 1}
+
+      assert_received {:ecto_backup_shell, :error,
+                       "** (EctoBackup) Fatal error: Fatal error occurred"}
+    end
+
+    test "fatal with string message exits with custom status" do
+      assert catch_exit(CLI.fatal("Fatal error occurred", 42)) == {:shutdown, 42}
+
+      assert_received {:ecto_backup_shell, :error,
+                       "** (EctoBackup) Fatal error: Fatal error occurred"}
+    end
+
+    test "fatal with EctoBackup.Error exception" do
+      exception = EctoBackup.Error.exception("Something went wrong")
+      assert catch_exit(CLI.fatal(exception)) == {:shutdown, 1}
+
+      assert_received {:ecto_backup_shell, :error,
+                       "** (EctoBackup) Fatal error: Something went wrong"}
+    end
+
+    test "fatal with EctoBackup.ConfError exception" do
+      exception = EctoBackup.ConfError.exception("Invalid configuration")
+      assert catch_exit(CLI.fatal(exception)) == {:shutdown, 1}
+
+      assert_received {:ecto_backup_shell, :error,
+                       "** (EctoBackup) Configuration error: Invalid configuration"}
+    end
+
+    test "fatal with other exception type" do
+      exception = RuntimeError.exception("Runtime error")
+      assert catch_exit(CLI.fatal(exception)) == {:shutdown, 1}
+      assert_received {:ecto_backup_shell, :error, "** (RuntimeError) Error Runtime error"}
+    end
 
     test "sets progress bar as status" do
       assert :ok == CLI.progress("This is a status message", 10, 100, "MiB", 70)
@@ -63,6 +102,57 @@ defmodule EctoBackup.IOTest do
       assert options[:repos] == [TestPGRepo, AnotherRepo]
       assert options[:backup_dir] == "/tmp/backups"
       assert options[:verbose] == true
+    end
+  end
+
+  describe "summarize_backup_results/1" do
+    test "prints summary when all backups succeed" do
+      results = [
+        {:ok, TestPGRepo, "/path/to/backup1.sql"},
+        {:ok, SecondPGRepo, "/path/to/backup2.sql"}
+      ]
+
+      CLI.summarize_backup_results(results)
+
+      assert_received {:ecto_backup_shell, :info, "Backup Summary:\n" <> rest}
+      assert rest =~ "✔ EctoBackup.TestPGRepo"
+      assert rest =~ "✔ EctoBackup.SecondPGRepo"
+    end
+
+    test "prints error summary when some backups fail" do
+      results = [
+        {:ok, TestPGRepo, "/path/to/backup1.sql"},
+        {:error, SecondPGRepo, EctoBackup.Error.exception("Connection failed")}
+      ]
+
+      CLI.summarize_backup_results(results)
+
+      assert_received {:ecto_backup_shell, :error,
+                       "Some backups completed with errors:\n" <> rest}
+
+      assert rest =~ "✔ EctoBackup.TestPGRepo: /path/to/backup1.sql"
+      assert rest =~ "✘ EctoBackup.SecondPGRepo: Connection failed"
+    end
+  end
+
+  describe "exit_if_errors/2" do
+    test "exits when there are errors in results" do
+      results = [
+        {:ok, TestPGRepo, "/path/to/backup1.sql"},
+        {:error, SecondPGRepo, EctoBackup.Error.exception("Connection failed")}
+      ]
+
+      assert catch_exit(CLI.exit_if_errors(results)) == {:shutdown, 1}
+      assert catch_exit(CLI.exit_if_errors(results, 99)) == {:shutdown, 99}
+    end
+
+    test "does not exit when all backups succeed" do
+      results = [
+        {:ok, TestPGRepo, "/path/to/backup1.sql"},
+        {:ok, SecondPGRepo, "/path/to/backup2.sql"}
+      ]
+
+      assert nil == CLI.exit_if_errors(results, 99)
     end
   end
 

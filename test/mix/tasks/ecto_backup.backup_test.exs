@@ -63,26 +63,26 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
                          "table \"public.test_table_one\""}
 
       assert_received {:ecto_backup_shell, :info, "Backup Summary:" <> rest}
-      assert String.contains?(rest, "✔ EctoBackup.TestPGRepo")
+      assert rest =~ "✔ EctoBackup.TestPGRepo"
       # EctoBackup.CLI.Shell.Process.flush(&IO.inspect/1)
     end
 
     test "handles missing repo configuration gracefully", %{backup_dir: backup_dir} do
       args = ["-r", "NonExistentRepo", "--backup-dir", backup_dir]
-      Mix.Tasks.EctoBackup.Backup.run(args)
+      assert catch_exit(Mix.Tasks.EctoBackup.Backup.run(args)) == {:shutdown, 1}
 
       assert_received {:ecto_backup_shell, :error,
-                       "Configuration Error: NonExistentRepo is not a valid Ecto.Repo module"}
+                       "** (EctoBackup) Configuration error: NonExistentRepo is not a valid Ecto.Repo module"}
 
       # EctoBackup.CLI.Shell.Process.flush(&IO.inspect/1)
     end
 
     test "handles invalid backup directory gracefully" do
       args = ["-r", "EctoBackup.TestPGRepo", "--backup-dir", 12345]
-      Mix.Tasks.EctoBackup.Backup.run(args)
+      assert catch_exit(Mix.Tasks.EctoBackup.Backup.run(args)) == {:shutdown, 1}
 
       assert_received {:ecto_backup_shell, :error,
-                       "Configuration Error: invalid backup " <>
+                       "** (EctoBackup) Configuration error: invalid backup " <>
                          "directory path, expected a string, got 12345"}
     end
 
@@ -91,14 +91,14 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
       on_exit(fn -> Application.delete_env(:ecto_backup, TestPGRepo) end)
 
       args = ["-r", "EctoBackup.TestPGRepo", "--backup-dir", backup_dir]
-      Mix.Tasks.EctoBackup.Backup.run(args)
+      assert catch_exit(Mix.Tasks.EctoBackup.Backup.run(args)) == {:shutdown, 1}
 
       assert_received {:ecto_backup_shell, :error,
                        "[EctoBackup.TestPGRepo] Error: pg_dump: error: could not open output " <>
                          "file \"/invalid/path/to/backup.db\": No such file or directory"}
 
-      assert_received {:ecto_backup_shell, :info, "Backup Summary:" <> rest}
-      assert String.contains?(rest, "✘ EctoBackup.TestPGRepo")
+      assert_received {:ecto_backup_shell, :error, "Some backups completed with errors:" <> rest}
+      assert rest =~ "✘ EctoBackup.TestPGRepo"
       # EctoBackup.CLI.Shell.Process.flush(&IO.inspect/1)
     end
 

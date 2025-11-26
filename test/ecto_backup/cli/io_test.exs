@@ -37,6 +37,8 @@ defmodule EctoBackup.CLI.Shell.IOTest do
     test "status/1 does nothing when ANSI is disabled" do
       output = capture_io(fn -> assert :ok == ShellIO.status("Working") end)
       assert output == ""
+      output = capture_io(fn -> assert :ok == ShellIO.status(nil) end)
+      assert output == ""
     end
 
     test "status is not reprinted after info/warning/error when ANSI is disabled" do
@@ -78,12 +80,12 @@ defmodule EctoBackup.CLI.Shell.IOTest do
 
     test "warning/1 prints bright yellow message after clearing line" do
       output = capture_io(fn -> assert :ok == ShellIO.warning(["Caution"]) end)
-      assert output == atos(["\r", :clear_line, :yellow, :bright, "Caution", :reset, "\n"])
+      assert output == atos(["\r", :clear_line, :yellow, "Caution", :reset, "\n"])
     end
 
     test "error/1 prints bright red message to stderr after clearing line" do
       stderr_output = capture_io(:stderr, fn -> assert :ok == ShellIO.error(["Failure"]) end)
-      assert stderr_output == atos(["\r", :clear_line, :red, :bright, "Failure", :reset, "\n"])
+      assert stderr_output == atos(["\r", :clear_line, :red, "Failure", :reset, "\n"])
     end
 
     test "status/1 sets current_status and writes without newline" do
@@ -117,7 +119,7 @@ defmodule EctoBackup.CLI.Shell.IOTest do
       output = capture_io(fn -> assert :ok == ShellIO.warning(["Caution"]) end)
 
       assert output ==
-               atos(["\r", :clear_line, :yellow, :bright, "Caution", :reset, "\n"]) <>
+               atos(["\r", :clear_line, :yellow, "Caution", :reset, "\n"]) <>
                  atos(["\r", :clear_line, :bright, "Stay", :reset])
     end
 
@@ -128,7 +130,7 @@ defmodule EctoBackup.CLI.Shell.IOTest do
         capture_io(fn ->
           # Capture stderr separately to inspect error output
           err_output = capture_io(:stderr, fn -> assert :ok == ShellIO.error(["Failure"]) end)
-          assert err_output == atos(["\r", :clear_line, :red, :bright, "Failure", :reset, "\n"])
+          assert err_output == atos(["\r", :clear_line, :red, "Failure", :reset, "\n"])
         end)
 
       assert output == atos(["\r", :clear_line, :bright, "AfterError", :reset])

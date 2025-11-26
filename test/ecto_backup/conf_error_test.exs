@@ -10,7 +10,7 @@ defmodule EctoBackup.ConfErrorTest do
     test "invalid_repo_list formats value" do
       err = %EctoBackup.ConfError{reason: :invalid_repo_list, value: 123}
       assert Exception.message(err) =~ "invalid :repos configuration"
-      assert Exception.message(err) =~ "got: 123"
+      assert Exception.message(err) =~ "123"
       assert err.value == 123
     end
 

@@ -120,13 +120,4 @@ defmodule EctoBackup.CLI.Telemetry do
       true -> :ok
     end
   end
-
-  def handle_event(event, measurements, metadata, config) do
-    CLI.warning([
-      "Unhandled telemetry event: #{inspect(event)} ",
-      "measurements: #{inspect(measurements)} ",
-      "metadata: #{inspect(metadata)} ",
-      "config: #{inspect(config)}"
-    ])
-  end
 end

@@ -26,7 +26,7 @@ defmodule Mix.Tasks.EctoBackup.Backup do
     - `-d`, `--backup-dir` - Specify the directory where backup files will be stored if not
       individually specified.
     - `-v`, `--verbose`    - Enable verbose logging output.
-    - `-q`, `--quiet`      - Suppress all output except for errors.
+    - `-q`, `--quiet`      - Suppress all output except for warnings and errors.
   """
   @shortdoc "Performs backups of Ecto repositories"
 
@@ -40,22 +40,16 @@ defmodule Mix.Tasks.EctoBackup.Backup do
     backup_opts = CLI.backup_opts_from_cli_opts(options)
 
     if options.quiet do
-      EctoBackup.CLI.shell(EctoBackup.CLI.Shell.Quiet)
+      CLI.shell(EctoBackup.CLI.Shell.Quiet)
     end
 
     CLI.attach(options)
 
     with {:ok, results} <- EctoBackup.backup(backup_opts) do
-      CLI.summarize_results(results)
+      CLI.summarize_backup_results(results)
+      CLI.exit_if_errors(results, 1)
     else
-      {:error, %EctoBackup.ConfError{} = e} ->
-        CLI.error("Configuration Error: #{Exception.message(e)}")
-
-      {:error, e} when is_exception(e) ->
-        CLI.error("Error: #{Exception.message(e)}")
-
-      {:error, reason} ->
-        CLI.error("Error: #{inspect(reason)}")
+      {:error, reason} -> CLI.fatal(reason, 1)
     end
   after
     CLI.detach()

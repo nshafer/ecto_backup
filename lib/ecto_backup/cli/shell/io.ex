@@ -33,7 +33,7 @@ defmodule EctoBackup.CLI.Shell.IO do
     emit? = IO.ANSI.enabled?()
 
     message =
-      [:yellow, :bright, message]
+      [:yellow, message]
       |> clear_line(emit?)
       |> IO.ANSI.format(emit?)
 
@@ -51,7 +51,7 @@ defmodule EctoBackup.CLI.Shell.IO do
     emit? = IO.ANSI.enabled?()
 
     message =
-      [:red, :bright, message]
+      [:red, message]
       |> clear_line(emit?)
       |> IO.ANSI.format(emit?)
 
