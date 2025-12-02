@@ -12,38 +12,52 @@ defmodule EctoBackup.Adapters.Postgres do
   [Individual Repo Configuration](#module-individual-repo-configuration)
   section of the main `EctoBackup` module documentation. Specifically:
 
-  - `PGDATABASE` will be set from `:database`.
-  - `PGHOST` will be set from `:socket`, `:socket_dir`, or `:hostname` in that order.
-  - `PGOPTIONS` will be set from `:options` if provided.
-  - `PGPORT` will be set from `:port`, defaulting to `5432` if not provided.
-  - `PGUSER` will be set from `:username`.
-  - Password will be provided via a securely created `.pgpass` file if `:password` is provided.
+    * `PGDATABASE` will be set from `:database`.
+
+    * `PGHOST` will be set from `:socket`, `:socket_dir`, or `:hostname` in that order.
+
+    * `PGOPTIONS` will be set from `:options` if provided.
+
+    * `PGPORT` will be set from `:port`, defaulting to `5432` if not provided.
+
+    * `PGUSER` will be set from `:username`.
+
+    * Password will be provided via a securely created `.pgpass` file if `:password` is provided.
 
   Additional repo configuration options supported by this adapter:
-    - `:pg_dump_cmd` - The command to use for `pg_dump`. Defaults to `"pg_dump"`.
-    - `:pg_dump_args` - A list of arguments to pass to `pg_dump`. Defaults to
+
+    * `:pg_dump_cmd` - The command to use for `pg_dump`. Defaults to `"pg_dump"`.
+
+    * `:pg_dump_args` - A list of arguments to pass to `pg_dump`. Defaults to
       `["--verbose", "--format=c", "--no-owner"]`.
-    - `:pg_restore_cmd` - The command to use for `pg_restore`. Defaults to `"pg_restore"`.
-    - `:pg_restore_args` - A list of arguments to pass to `pg_restore`. Defaults to
+
+    * `:pg_restore_cmd` - The command to use for `pg_restore`. Defaults to `"pg_restore"`.
+
+    * `:pg_restore_args` - A list of arguments to pass to `pg_restore`. Defaults to
       `["--verbose", "--clean", "--no-owner", "--no-acl"]`.
 
   ## A note on default arguments
-  - The `--verbose` argument is required for progress and feedback during backup and restore
-    operations.
-  - The `--format=c` argument for `pg_dump` creates a custom-format dump file, which is the most
-    flexible format, and compressed by default.
-  - The `--no-owner` argument prevents ownership information from being included in the dump,
-    which can be useful when restoring to a different database or user.
-  - The `--clean` argument for `pg_restore` ensures that existing database objects are dropped
-    before being recreated from the dump.
-  - The `--no-acl` argument prevents access control lists from being restored, which can help
-    avoid permission issues during restore.
+    * The `--verbose` argument is required for progress and feedback during backup and restore
+      operations.
+
+    * The `--format=c` argument for `pg_dump` creates a custom-format dump file, which is the most
+      flexible format, and compressed by default.
+    * The `--no-owner` argument prevents ownership information from being included in the dump,
+      which can be useful when restoring to a different database or user.
+
+    * The `--clean` argument for `pg_restore` ensures that existing database objects are dropped
+      before being recreated from the dump.
+
+    * The `--no-acl` argument prevents access control lists from being restored, which can help
+      avoid permission issues during restore.
 
   ## Telemetry Events
   During backup and restore operations, the following telemetry events are emitted:
-    - `[:ecto_backup, :backup, :repo, :progress]` - Emitted periodically during backup to report
+
+    * `[:ecto_backup, :backup, :repo, :progress]` - Emitted periodically during backup to report
       progress. Measurements include `:completed`, `:total`, and `:percent`.
-    - `[:ecto_backup, :backup, :repo, :message]` - Emitted for informational, warning, or error
+
+    * `[:ecto_backup, :backup, :repo, :message]` - Emitted for informational, warning, or error
       messages from the backup process. Metadata includes `:level` and `:message`.
 
   All telemetry events include the `:repo` in their metadata for context.
@@ -64,12 +78,19 @@ defmodule EctoBackup.Adapters.Postgres do
       {:ok, env} <- create_pgpass_file(repo, env, repo_config),
       {:ok, table_count} <- get_table_count(repo)
     ) do
+      cmd_opts = [
+        env: env,
+        lines: 1024,
+        on_output: on_output_fun(repo, table_count),
+        into: nil
+      ]
+
       try do
-        case run_cmd(cmd, args, env, repo, table_count, options) do
-          0 ->
+        case EctoBackup.CLI.cmd({cmd, args}, cmd_opts) do
+          {_output, 0} ->
             {:ok, backup_file}
 
-          exit_status ->
+          {_output, exit_status} ->
             {:error,
              Error.exception(
                reason: :pg_dump_failed,
@@ -84,61 +105,26 @@ defmodule EctoBackup.Adapters.Postgres do
     end
   end
 
-  # def restore(repo, repo_config, backup_file, options) do
-  #   IO.puts("Starting PostgreSQL restore of #{repo.config()[:database]} from #{backup_file}...")
-  #   dbg(repo_config)
-  #   dbg(options)
-  # end
+  def on_output_fun(repo, total) do
+    fun = fn completed, line ->
+      emit_message_event(repo, line)
 
-  defp run_cmd(cmd, args, env, repo, total, options) do
-    port =
-      Port.open({:spawn_executable, cmd}, [
-        :binary,
-        :use_stdio,
-        :stderr_to_stdout,
-        :exit_status,
-        {:args, args},
-        {:env, port_env(env)},
-        {:line, 1024}
-      ])
+      if total && String.starts_with?(line, "pg_dump: dumping contents of table") do
+        case Regex.run(~r/pg_dump: dumping contents of table "([^"]+)"/, line) do
+          [_full, table_name] ->
+            emit_progress_event(repo, completed, total, trim_table_name(table_name))
 
-    receive_output(port, repo, 0, total, options, [])
-  end
-
-  defp receive_output(port, repo, completed, total, options, buffer) do
-    receive do
-      {^port, {:data, {:noeol, data}}} ->
-        receive_output(port, repo, completed, total, options, [data | buffer])
-
-      {^port, {:data, {:eol, data}}} ->
-        line = [data | buffer] |> Enum.reverse() |> IO.iodata_to_binary()
-        emit_message_event(repo, line)
-
-        if total && String.starts_with?(line, "pg_dump: dumping contents of table") do
-          case Regex.run(~r/pg_dump: dumping contents of table "([^"]+)"/, line) do
-            [_full, table_name] ->
-              emit_progress_event(repo, completed, total, trim_table_name(table_name))
-
-            _ ->
-              emit_progress_event(repo, completed, total, nil)
-          end
-
-          receive_output(port, repo, completed + 1, total, options, [])
-        else
-          receive_output(port, repo, completed, total, options, [])
+          _ ->
+            emit_progress_event(repo, completed, total, nil)
         end
 
-      {^port, {:exit_status, exit_status}} ->
-        # Data may arrive after exit status in line mode
-        receive do
-          {^port, {:data, {_, data}}} ->
-            line = [data | buffer] |> Enum.reverse() |> IO.iodata_to_binary()
-            emit_message_event(repo, line)
-            exit_status
-        after
-          0 -> exit_status
-        end
+        completed + 1
+      else
+        completed
+      end
     end
+
+    {0, fun}
   end
 
   defp get_table_count(repo) do
@@ -217,14 +203,6 @@ defmodule EctoBackup.Adapters.Postgres do
          repo: repo
        )}
     end
-  end
-
-  defp port_env(env) do
-    Enum.map(env, fn
-      {k, nil} -> {to_charlist(k), false}
-      {k, v} -> {to_charlist(k), to_charlist(v)}
-      other -> raise ArgumentError, "Invalid env key-value: #{inspect(other)}"
-    end)
   end
 
   defp create_pgpass_file(repo, env, repo_config) do
