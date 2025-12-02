@@ -53,3 +53,11 @@ EctoBackup.backup(repo: Myapp.Repo, adapter: EctoBackup.Adapters.Postgres, usern
 - `EctoBackup.restore!/1` will do the same as `restore`
     - Prompts user for confirmation, outputs status, raises on exception.
     - This is what the mix task and release task will use.
+
+
+## MySQL
+
+https://dev.mysql.com/doc/refman/8.4/en/backup-strategy-example.html
+https://dev.mysql.com/doc/refman/8.4/en/password-security-user.html
+https://wiki.archlinux.org/title/MariaDB
+
