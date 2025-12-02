@@ -7,16 +7,16 @@ defmodule EctoBackup.IOTest do
 
   doctest EctoBackup.CLI
 
+  setup do
+    # Set the CLI shell to Process to send messages to the test process
+    EctoBackup.CLI.shell(EctoBackup.CLI.Shell.Process)
+
+    # Ensure no leftover messages in the inbox before each test
+    EctoBackup.CLI.Shell.Process.flush()
+    :ok
+  end
+
   describe "logging functions" do
-    setup do
-      # Set the CLI shell to Process to send messages to the test process
-      EctoBackup.CLI.shell(EctoBackup.CLI.Shell.Process)
-
-      # Ensure no leftover messages in the inbox before each test
-      EctoBackup.CLI.Shell.Process.flush()
-      :ok
-    end
-
     test "prints info message" do
       assert :ok == CLI.info("This is an info message")
       assert_received {:ecto_backup_shell, :info, "This is an info message"}
@@ -233,6 +233,49 @@ defmodule EctoBackup.IOTest do
       width = CLI.term_width()
       assert is_integer(width)
       assert width == 100
+    end
+  end
+
+  describe "cmd/2" do
+    test "executes command and captures output" do
+      {output, 0} = CLI.cmd("echo 'Hello'\necho 'World'")
+      assert output == "Hello\nWorld\n"
+    end
+
+    test "executes command with custom into" do
+      {output, 0} = CLI.cmd("echo 'Hello'\nsleep 0.1\necho 'World'", into: [])
+      assert output == ["Hello\n", "World\n"]
+      {output, 0} = CLI.cmd("echo 'Hello'\necho 'World'", into: [], lines: 1024)
+      assert output == ["Hello", "World"]
+    end
+
+    test "executes command with on_output callback" do
+      on_output = fn data ->
+        send(self(), {:cmd_output, data})
+      end
+
+      {output, 0} = CLI.cmd("echo 'Hello'\nsleep 0.1\necho 'World'", on_output: on_output)
+      assert_received {:cmd_output, "Hello\n"}
+      assert_received {:cmd_output, "World\n"}
+      assert output == "Hello\nWorld\n"
+    end
+
+    test "executes command that fails" do
+      {output, exit_status} = CLI.cmd({"sh", ["invalid_file"]})
+      assert exit_status != 0
+      assert output =~ "invalid_file: No such file or directory"
+    end
+
+    test "overrides on_output callback if quiet option is set" do
+      on_output = fn data ->
+        send(self(), {:cmd_output, data})
+      end
+
+      {output, 0} =
+        CLI.cmd("echo 'Hello'\necho 'World'", on_output: on_output, quiet: true)
+
+      refute_received {:cmd_output, _}
+      assert output == "Hello\nWorld\n"
     end
   end
 end

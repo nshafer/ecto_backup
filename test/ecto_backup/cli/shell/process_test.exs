@@ -34,4 +34,10 @@ defmodule EctoBackup.CLI.Shell.ProcessTest do
     assert_received {:flush_test, {:ecto_backup_shell, :info, "Message 1"}}
     assert_received {:flush_test, {:ecto_backup_shell, :warning, "Message 2"}}
   end
+
+  test "cmd/2 executes command and captures output" do
+    {output, 0} = cmd("echo 'Hello World'")
+    assert output == "Hello World\n"
+    assert_received {:ecto_backup_shell, :cmd, "Hello World\n"}
+  end
 end

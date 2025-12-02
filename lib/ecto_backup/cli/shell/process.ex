@@ -1,7 +1,11 @@
 defmodule EctoBackup.CLI.Shell.Process do
-  # An EctoBackup CLI shell that sends output to another process. This is mainly for use in tests.
+  @moduledoc """
+  An EctoBackup CLI shell that sends output to another process.
 
-  @moduledoc false
+  This is mainly for use in tests.
+
+  Any ANSI codes in the messages are stripped before sending.
+  """
 
   @behaviour EctoBackup.CLI.Shell
 
@@ -26,24 +30,46 @@ defmodule EctoBackup.CLI.Shell.Process do
     end
   end
 
+  @doc """
+  Sends a message to the current process indicating an informational message.
+
+  Format is `{:ecto_backup_shell, :info, message}`.
+  """
   @impl true
   def info(message) do
     send(self(), {:ecto_backup_shell, :info, format(message)})
     :ok
   end
 
+  @doc """
+  Sends a message to the current process indicating a warning message.
+
+  Format is `{:ecto_backup_shell, :warning, message}`.
+  """
   @impl true
   def warning(message) do
     send(self(), {:ecto_backup_shell, :warning, format(message)})
     :ok
   end
 
+  @doc """
+  Sends a message to the current process indicating an error message.
+
+  Format is `{:ecto_backup_shell, :error, message}`.
+  """
   @impl true
   def error(message) do
     send(self(), {:ecto_backup_shell, :error, format(message)})
     :ok
   end
 
+  @doc """
+  Sends a message to the current process indicating a status message.
+
+  Does not send anything if the message is `nil`, which indicates a desire to clear the status.
+
+  Format is `{:ecto_backup_shell, :status, message}`.
+  """
   @impl true
   def status(nil) do
     :ok
@@ -52,6 +78,20 @@ defmodule EctoBackup.CLI.Shell.Process do
   def status(message) do
     send(self(), {:ecto_backup_shell, :status, format(message)})
     :ok
+  end
+
+  @doc """
+  Executes the given command and forwards its messages to the current process.
+
+  Format is
+  """
+  @impl true
+  def cmd(command, opts \\ []) do
+    on_output = fn data ->
+      send(self(), {:ecto_backup_shell, :cmd, data})
+    end
+
+    EctoBackup.CLI.cmd(command, Keyword.put(opts, :on_output, on_output))
   end
 
   defp format(message) do

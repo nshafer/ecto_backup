@@ -25,4 +25,14 @@ defmodule EctoBackup.CLI.Shell.QuietTest do
     stderr_output = capture_io(:stderr, fn -> ShellQuiet.error("This is an error message") end)
     assert stderr_output == "This is an error message\n"
   end
+
+  test "cmd/2 captures output without emitting to stdout" do
+    output =
+      capture_io(fn ->
+        assert {"Line1\nLine2\nLine3\n", 0} ==
+                 ShellQuiet.cmd("echo 'Line1';echo 'Line2' >&2;echo 'Line3'")
+      end)
+
+    assert output == ""
+  end
 end

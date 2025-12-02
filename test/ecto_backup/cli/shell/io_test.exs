@@ -53,6 +53,26 @@ defmodule EctoBackup.CLI.Shell.IOTest do
       error_output = capture_io(:stderr, fn -> assert :ok == ShellIO.error("ErrorMessage") end)
       assert error_output == "ErrorMessage\n"
     end
+
+    test "cmd/2 forwards command output without ANSI" do
+      output =
+        capture_io(fn ->
+          assert {"Line1\nLine2\nLine3\n", 0} ==
+                   ShellIO.cmd("echo 'Line1'\necho 'Line2' >&2\necho 'Line3'")
+        end)
+
+      assert output == "Line1\nLine2\nLine3\n"
+    end
+
+    test "cmd/2 does not output if quiet option is set" do
+      output =
+        capture_io(fn ->
+          assert {"Line1\nLine2\n", 0} ==
+                   ShellIO.cmd("echo 'Line1'\necho 'Line2'", quiet: true)
+        end)
+
+      assert output == ""
+    end
   end
 
   defp atos(ansidata) do
@@ -70,6 +90,7 @@ defmodule EctoBackup.CLI.Shell.IOTest do
 
       # Ensure no prior status
       State.delete(:current_status)
+      on_exit(fn -> State.delete(:current_status) end)
       :ok
     end
 
@@ -134,6 +155,31 @@ defmodule EctoBackup.CLI.Shell.IOTest do
         end)
 
       assert output == atos(["\r", :clear_line, :bright, "AfterError", :reset])
+    end
+
+    test "cmd/2 prints output with a status line" do
+      output = capture_io(fn -> assert :ok == ShellIO.status([:bright, "Working"]) end)
+      assert output == atos(["\r", :clear_line, :bright, "Working", :reset])
+
+      output =
+        capture_io(fn ->
+          assert {"Line1\nLine2\nLine3\n", 0} ==
+                   ShellIO.cmd(
+                     "echo 'Line1'; sleep 0.1;" <>
+                       "echo -n 'Line'; sleep 0.1; echo '2'; sleep 0.1;" <>
+                       "echo 'Line3'"
+                   )
+        end)
+
+      assert output ==
+               atos([
+                 ["\r", :clear_line, "Line1\n"],
+                 ["\r", :clear_line, :bright, "Working", :reset],
+                 ["\r", :clear_line, "Line", "2\n"],
+                 ["\r", :clear_line, :bright, "Working", :reset],
+                 ["\r", :clear_line, "Line3\n"],
+                 ["\r", :clear_line, :bright, "Working", :reset]
+               ])
     end
   end
 end

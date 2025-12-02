@@ -1,7 +1,7 @@
 defmodule EctoBackup.CLI.Shell.Quiet do
-  # An EctoBackup CLI shell that suppresses all output.
-
-  @moduledoc false
+  @moduledoc """
+  An EctoBackup CLI shell that suppresses all normal output.
+  """
 
   @behaviour EctoBackup.CLI.Shell
 
@@ -14,13 +14,13 @@ defmodule EctoBackup.CLI.Shell.Quiet do
   end
 
   @doc """
-  Prints the warning message using Mix.CLI.Shell.IO.warning/1.
+  Prints the warning message using `EctoBackup.CLI.Shell.IO.warning/1`.
   """
   @impl true
   defdelegate warning(message), to: EctoBackup.CLI.Shell.IO
 
   @doc """
-  Prints the error message using Mix.CLI.Shell.IO.error/1.
+  Prints the error message using `EctoBackup.CLI.Shell.IO.error/1`.
   """
   @impl true
   defdelegate error(message), to: EctoBackup.CLI.Shell.IO
@@ -31,5 +31,13 @@ defmodule EctoBackup.CLI.Shell.Quiet do
   @impl true
   def status(_) do
     :ok
+  end
+
+  @doc """
+  Executes the given command quietly without outputting anything.
+  """
+  @impl true
+  def cmd(command, opts \\ []) do
+    EctoBackup.CLI.cmd(command, opts)
   end
 end
