@@ -247,6 +247,31 @@ defmodule EctoBackup.IOTest do
       assert output == ["Hello\n", "World\n"]
       {output, 0} = CLI.cmd("echo 'Hello'\necho 'World'", into: [], lines: 1024)
       assert output == ["Hello", "World"]
+
+      assert_raise(ArgumentError, fn ->
+        CLI.cmd("echo 'Hello World'", into: nil)
+      end)
+
+      on_output = fn data ->
+        send(self(), {:cmd_output, data})
+      end
+
+      {output, 0} = CLI.cmd("echo 'Hello\nWorld'", on_output: on_output, into: [], lines: 1024)
+      assert_received {:cmd_output, "Hello"}
+      assert_received {:cmd_output, "World"}
+      assert output == ["Hello", "World"]
+
+      on_output = fn acc, data ->
+        send(self(), {:cmd_output, data})
+        [data | acc]
+      end
+
+      {output, 0} =
+        CLI.cmd("echo 'Hello\nWorld'", on_output: {[], on_output}, into: [], lines: 1024)
+
+      assert_received {:cmd_output, "Hello"}
+      assert_received {:cmd_output, "World"}
+      assert output == ["Hello", "World"]
     end
 
     test "executes command with on_output callback" do
@@ -258,6 +283,19 @@ defmodule EctoBackup.IOTest do
       assert_received {:cmd_output, "Hello\n"}
       assert_received {:cmd_output, "World\n"}
       assert output == "Hello\nWorld\n"
+
+      {output, 0} = CLI.cmd("echo 'Hello World'", on_output: on_output, into: nil)
+      assert_received {:cmd_output, "Hello World\n"}
+      assert output == nil
+
+      on_output = fn acc, data ->
+        send(self(), {:cmd_output, data})
+        [data | acc]
+      end
+
+      {output, 0} = CLI.cmd("echo 'Hello World'", on_output: {[], on_output}, into: nil)
+      assert_received {:cmd_output, "Hello World\n"}
+      assert output == nil
     end
 
     test "executes command that fails" do

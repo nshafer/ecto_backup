@@ -87,10 +87,10 @@ defmodule EctoBackup.Adapters.Postgres do
 
       try do
         case EctoBackup.CLI.cmd({cmd, args}, cmd_opts) do
-          {_output, 0} ->
+          {nil, 0} ->
             {:ok, backup_file}
 
-          {_output, exit_status} ->
+          {nil, exit_status} ->
             {:error,
              Error.exception(
                reason: :pg_dump_failed,

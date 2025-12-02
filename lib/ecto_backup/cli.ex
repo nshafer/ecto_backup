@@ -269,7 +269,7 @@ defmodule EctoBackup.CLI do
     def into(%EctoBackup.CLI{callback: {acc, fun}, into: nil}) when is_function(fun) do
       fun = fn
         acc, {:cont, data} -> fun.(acc, data)
-        _, _ -> :ok
+        _, _ -> nil
       end
 
       {acc, fun}
@@ -278,10 +278,10 @@ defmodule EctoBackup.CLI do
     def into(%EctoBackup.CLI{callback: fun, into: nil}) do
       fun = fn
         _, {:cont, data} -> fun.(data)
-        _, _ -> :ok
+        _, _ -> nil
       end
 
-      {:ok, fun}
+      {nil, fun}
     end
 
     def into(%EctoBackup.CLI{callback: {cb_acc, cb_fun}, into: into}) when is_function(cb_fun) do
