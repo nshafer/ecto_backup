@@ -85,6 +85,21 @@ defmodule EctoBackup.CLI.Shell.IO do
   end
 
   @doc """
+  Prompts the user for input.
+  """
+  @impl true
+  def prompt(message) do
+    emit? = IO.ANSI.enabled?()
+    message = IO.ANSI.format(message, emit?)
+
+    case IO.gets([message, " "]) do
+      {:error, _} -> raise "EctoBackup.CLI.shell().prompt/1 is not available on this device"
+      :eof -> raise "EctoBackup.CLI.shell().prompt/1 received EOF"
+      input -> input
+    end
+  end
+
+  @doc """
   Executes the given command and prints its output to stdout as it comes.
 
   Will reprint the current status line after each chunk of output, if ANSI is enabled.

@@ -41,6 +41,11 @@ defmodule EctoBackup.CLI.Shell do
   @callback status(message :: IO.ANSI.ansidata() | nil) :: :ok
 
   @doc """
+  Prompts the user for input.
+  """
+  @callback prompt(message :: IO.ANSI.ansidata()) :: binary()
+
+  @doc """
   Executes the given command and returns its exit status.
 
   Shortcut for `c:cmd/2` with empty options.

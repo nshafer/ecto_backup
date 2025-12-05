@@ -81,6 +81,30 @@ defmodule EctoBackup.CLI.Shell.Process do
   end
 
   @doc """
+  Sends the given prompt message to the current process and checks for a message response.
+
+  Format is `{:ecto_backup_shell, :prompt, message}`.
+
+  Expects a response in the form `{:ecto_backup_shell_input, :prompt, input}`.
+
+  Example:
+
+      send(self(), {:ecto_backup_shell_input, :prompt, "Thom"})
+      EctoBackup.CLI.shell().prompt("Enter name:")
+
+  """
+  @impl true
+  def prompt(message) do
+    send(self(), {:ecto_backup_shell, :prompt, format(message)})
+
+    receive do
+      {:ecto_backup_shell_input, :prompt, input} -> input
+    after
+      0 -> raise "No input received for prompt"
+    end
+  end
+
+  @doc """
   Executes the given command and forwards its messages to the current process.
 
   Format is

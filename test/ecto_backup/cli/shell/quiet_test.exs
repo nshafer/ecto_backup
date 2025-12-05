@@ -26,6 +26,21 @@ defmodule EctoBackup.CLI.Shell.QuietTest do
     assert stderr_output == "This is an error message\n"
   end
 
+  test "status/1 does not output anything" do
+    assert capture_io(fn -> ShellQuiet.status("Current status") end) == ""
+    assert capture_io(fn -> ShellQuiet.status(nil) end) == ""
+  end
+
+  test "prompt/1 outputs prompt and returns user input" do
+    output =
+      capture_io("user input", fn ->
+        input = ShellQuiet.prompt("Enter something:")
+        IO.write(input)
+      end)
+
+    assert output == "Enter something: user input"
+  end
+
   test "cmd/2 captures output without emitting to stdout" do
     output =
       capture_io(fn ->

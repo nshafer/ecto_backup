@@ -34,6 +34,12 @@ defmodule EctoBackup.CLI.Shell.Quiet do
   end
 
   @doc """
+  Prompts the user for input using `EctoBackup.CLI.Shell.IO.prompt/1`.
+  """
+  @impl true
+  defdelegate prompt(message), to: EctoBackup.CLI.Shell.IO
+
+  @doc """
   Executes the given command quietly without outputting anything.
   """
   @impl true

@@ -54,6 +54,26 @@ defmodule EctoBackup.CLI.Shell.IOTest do
       assert error_output == "ErrorMessage\n"
     end
 
+    test "prompt/1 displays prompt message and returns user input" do
+      output =
+        capture_io("user input", fn ->
+          input = ShellIO.prompt("Enter something:")
+          IO.write(input)
+        end)
+
+      assert output == "Enter something: user input"
+    end
+
+    test "raises if input is EOF" do
+      assert_raise RuntimeError,
+                   "EctoBackup.CLI.shell().prompt/1 received EOF",
+                   fn ->
+                     assert capture_io(fn ->
+                              ShellIO.prompt("Enter something:")
+                            end) == "Enter something: "
+                   end
+    end
+
     test "cmd/2 forwards command output without ANSI" do
       output =
         capture_io(fn ->

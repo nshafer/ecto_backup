@@ -21,6 +21,19 @@ defmodule EctoBackup.CLI.Shell.ProcessTest do
     refute_received {:ecto_backup_shell, :status, _}
   end
 
+  test "prompt/1 sends input message to myself" do
+    send(self(), {:ecto_backup_shell_input, :prompt, "User input"})
+    input = prompt("Enter something:")
+    assert input == "User input"
+    assert_received {:ecto_backup_shell, :prompt, "Enter something:"}
+  end
+
+  test "raises if no input message is received" do
+    assert_raise RuntimeError, "No input received for prompt", fn ->
+      prompt("Enter something:")
+    end
+  end
+
   test "flush/1 removes all messages from inbox" do
     info("Test message")
     flush()
