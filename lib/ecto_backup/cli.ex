@@ -98,7 +98,7 @@ defmodule EctoBackup.CLI do
       case exception do
         %EctoBackup.ConfError{} -> "** (EctoBackup) Configuration error:"
         %EctoBackup.Error{} -> "** (EctoBackup) Fatal error:"
-        _ -> "** (#{mod}) Error"
+        _ -> "** (#{mod}) Error:"
       end
 
     error("#{label} #{Exception.message(exception)}")

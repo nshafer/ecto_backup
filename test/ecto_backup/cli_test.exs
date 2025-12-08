@@ -76,7 +76,7 @@ defmodule EctoBackup.IOTest do
     test "fatal with other exception type" do
       exception = RuntimeError.exception("Runtime error")
       assert catch_exit(CLI.fatal(exception)) == {:shutdown, 1}
-      assert_received {:ecto_backup_shell, :error, "** (RuntimeError) Error Runtime error"}
+      assert_received {:ecto_backup_shell, :error, "** (RuntimeError) Error: Runtime error"}
     end
 
     test "sets progress bar as status" do
