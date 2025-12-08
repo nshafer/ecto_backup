@@ -17,8 +17,8 @@ defmodule EctoBackup.ConfErrorTest do
     test "no_default_repos contains helpful guidance" do
       err = %EctoBackup.ConfError{reason: :no_default_repos}
       msg = Exception.message(err)
-      assert String.contains?(msg, "no default repositories found")
-      assert String.contains?(msg, "config :ecto_backup, repos: [MyApp.Repo]")
+      assert msg =~ "no default repositories found"
+      assert msg =~ "config :ecto_backup, repos: [MyApp.Repo]"
     end
 
     test "invalid_repo_spec formats value" do
@@ -61,8 +61,29 @@ defmodule EctoBackup.ConfErrorTest do
     test "no_backup_dir_set contains guidance" do
       err = %EctoBackup.ConfError{reason: :no_backup_dir_set}
       msg = Exception.message(err)
-      assert String.contains?(msg, "no backup directory is set")
-      assert String.contains?(msg, "config :ecto_backup, backup_dir:")
+      assert msg =~ "no backup directory is set"
+      assert msg =~ "config :ecto_backup, backup_dir:"
+    end
+
+    test "no_repos_to_backup contains guidance" do
+      err = %EctoBackup.ConfError{reason: :no_repos_to_backup, value: []}
+      msg = Exception.message(err)
+      assert msg =~ "no repositories to back up"
+      assert msg =~ "config :ecto_backup, repos:"
+    end
+
+    test "no_repos_to_restore contains guidance" do
+      err = %EctoBackup.ConfError{reason: :no_repos_to_restore, value: []}
+      msg = Exception.message(err)
+      assert msg =~ "no repositories to restore"
+      assert msg =~ "config :ecto_backup, repos:"
+    end
+
+    test "multiple_repos_to_restore contains guidance" do
+      err = %EctoBackup.ConfError{reason: :multiple_repos_to_restore, value: [:repo1, :repo2]}
+      msg = Exception.message(err)
+      assert msg =~ "multiple repositories provided for restore"
+      assert msg =~ "config :ecto_backup, repos: [MyApp.Repo]"
     end
   end
 

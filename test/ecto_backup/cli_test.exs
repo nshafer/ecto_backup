@@ -13,6 +13,7 @@ defmodule EctoBackup.IOTest do
 
     # Ensure no leftover messages in the inbox before each test
     EctoBackup.CLI.Shell.Process.flush()
+
     :ok
   end
 
@@ -132,6 +133,23 @@ defmodule EctoBackup.IOTest do
 
       assert rest =~ "✔ EctoBackup.TestPGRepo: /path/to/backup1.sql"
       assert rest =~ "✘ EctoBackup.SecondPGRepo: Connection failed"
+    end
+  end
+
+  describe "summarize_restore_result/1" do
+    test "prints success message on successful restore" do
+      CLI.summarize_restore_result({:ok, TestPGRepo})
+
+      assert_received {:ecto_backup_shell, :info, "Restore summary:\n" <> rest}
+      assert rest =~ "✔ EctoBackup.TestPGRepo: Restored successfully"
+    end
+
+    test "prints error message on failed restore" do
+      e = EctoBackup.Error.exception("Restore failed")
+      CLI.summarize_restore_result({:error, TestPGRepo, e})
+
+      assert_received {:ecto_backup_shell, :error, "Restore completed with errors:\n" <> rest}
+      assert rest =~ "✘ EctoBackup.TestPGRepo: Restore failed"
     end
   end
 
@@ -314,6 +332,22 @@ defmodule EctoBackup.IOTest do
 
       refute_received {:cmd_output, _}
       assert output == "Hello\nWorld\n"
+    end
+  end
+
+  describe "confirm_restore/0" do
+    test "prompts user for confirmation before restore" do
+      send(self(), {:ecto_backup_shell_input, :prompt, "yes"})
+      assert CLI.confirm_restore() == true
+      assert_received {:ecto_backup_shell, :prompt, "Are you sure" <> _}
+
+      send(self(), {:ecto_backup_shell_input, :prompt, "no"})
+      assert CLI.confirm_restore() == false
+      assert_received {:ecto_backup_shell, :prompt, "Are you sure" <> _}
+
+      send(self(), {:ecto_backup_shell_input, :prompt, ""})
+      assert CLI.confirm_restore() == false
+      assert_received {:ecto_backup_shell, :prompt, "Are you sure" <> _}
     end
   end
 end

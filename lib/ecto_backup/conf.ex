@@ -78,6 +78,7 @@ defmodule EctoBackup.Conf do
 
   def get_repo_specs(options) do
     case Application.fetch_env(:ecto_backup, :repos) do
+      {:ok, []} -> {:error, ConfError.exception(reason: :no_repos_to_backup)}
       {:ok, repos} when is_list(repos) -> {:ok, repos, options}
       {:ok, invalid} -> {:error, ConfError.exception(reason: :invalid_repo_list, value: invalid)}
       :error -> {:error, ConfError.exception(reason: :no_default_repos)}
@@ -91,7 +92,7 @@ defmodule EctoBackup.Conf do
   @spec get_repo_configs([repo_spec()]) ::
           {:ok, [{Ecto.Repo.t(), repo_config()}]} | {:error, Exception.t()}
   def get_repo_configs([]) do
-    {:error, ConfError.exception(reason: :invalid_repo_list, value: [])}
+    {:error, ConfError.exception(reason: :no_repos_to_backup, value: [])}
   end
 
   def get_repo_configs(repo_specs) when is_list(repo_specs) do

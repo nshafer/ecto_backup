@@ -22,9 +22,16 @@ defmodule EctoBackup.ConfError do
     no default repositories found, please configure :repos in
     the :ecto_backup application configuration
 
-    Example:
+    Examples:
 
+        # In app config
         config :ecto_backup, repos: [MyApp.Repo]
+
+        # When running the mix task
+        mix ecto_backup.backup -r MyApp.Repo
+
+        # When running the release task
+        ./backup --repo MyApp.Repo
     """
   end
 
@@ -50,13 +57,77 @@ defmodule EctoBackup.ConfError do
 
   def message(%{reason: :no_backup_dir_set}) do
     """
-    no backup directory is set, so a backup file cannot be generated, please
-    set the :backup_dir option or specify a :backup_file in the repo
-    configuration
+    no backup directory is set, so a backup file cannot
+    be generated, please set the :backup_dir option or specify
+    a :backup_file in the repo configuration
 
-    Example:
+    Examples:
 
+        # In app config
         config :ecto_backup, backup_dir: "/path/to/backup/dir"
+
+        # When running the mix task
+        mix ecto_backup.backup -d /path/to/backup/dir
+
+        # When running the release task
+        ./backup --backup-dir /path/to/backup/dir
+    """
+  end
+
+  def message(%{reason: :no_repos_to_backup}) do
+    """
+    no repositories to back up, please provide at
+    least one repository in the :repos option or configure :repos in the
+    :ecto_backup application configuration
+
+    Examples:
+
+        # In app config
+        config :ecto_backup, repos: [MyApp.Repo]
+
+        # When running the mix task
+        mix ecto_backup.backup -r MyApp.Repo
+
+        # When running the release task
+        ./backup --repo MyApp.Repo
+    """
+  end
+
+  def message(%{reason: :no_repos_to_restore}) do
+    """
+    no repositories to restore, please provide at
+    least one repository in the :repos option or configure :repos in the
+    :ecto_backup application configuration
+
+    Examples:
+
+        # In app config
+        config :ecto_backup, repos: [MyApp.Repo]
+
+        # When running the mix task
+        mix ecto_backup.restore -r MyApp.Repo path/to/backup/file
+
+        # When running the release task
+        ./restore --repo MyApp.Repo path/to/backup/file
+    """
+  end
+
+  def message(%{reason: :multiple_repos_to_restore}) do
+    """
+    multiple repositories provided for restore,
+    please provide only one repository in the :repos option when restoring
+    a backup file
+
+    Examples:
+
+        # In app config
+        config :ecto_backup, repos: [MyApp.Repo]
+
+        # When running the mix task
+        mix ecto_backup.restore -r MyApp.Repo path/to/backup/file
+
+        # When running the release task
+        ./restore --repo MyApp.Repo path/to/backup/file
     """
   end
 end

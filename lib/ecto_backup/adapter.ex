@@ -42,23 +42,28 @@ defmodule EctoBackup.Adapter do
   @doc """
   Performs a backup of the given repository to the specified file.
 
-  This should return `{:ok, backup_file}` on success, where `backup_file` is the path to the created
-  backup file. On failure, it should return `{:error, %EctoBackup.Error{}}` with details about the failure.
+  This should return `{:ok, backup_file}` on success, where `backup_file` is the path to the
+  created backup file. On failure, it should return `{:error, %EctoBackup.Error{}}` with details
+  about the failure.
 
   Effort should be made to not throw exceptions from this function; instead, return errors in the
   specified format.
 
   ## Parameters
 
-    - `repo`        - The Ecto repository module to back up.
-    - `repo_config` - A map of repository-specific options, merged from various configuration sources.
-    - `file`        - The path to the backup file where the database dump should be stored.
-    - `options`     - A map of additional options passed to the backup operation.
+    * `repo`         - The Ecto repository module to back up.
+
+    * `repo_config`  - A map of repository-specific options, merged from various configuration
+      sources.
+
+    * `backup_file`  - The path to the backup file where the database dump should be stored.
+
+    * `options`      - A map of additional options passed to the backup operation.
   """
   @callback backup(
               repo :: Ecto.Repo.t(),
-              file :: String.t(),
               repo_config :: map(),
+              backup_file :: String.t(),
               options :: map()
             ) ::
               {:ok, String.t()} | {:error, %EctoBackup.Error{}}
@@ -68,29 +73,34 @@ defmodule EctoBackup.Adapter do
 
   ## Parameters
 
-    - `repo`        - The Ecto repository module to restore.
-    - `repo_config` - A map of repository-specific options, merged from various configuration sources.
-    - `file`        - The path to the backup file from which the database dump should be restored.
-    - `options`     - A map of additional options passed to the restore operation.
+    * `repo`         - The Ecto repository module to restore.
+
+    * `repo_config`  - A map of repository-specific options, merged from various configuration
+      sources.
+
+    * `restore_file` - The path to the backup file from which the database dump should be
+      restored.
+
+    * `options`      - A map of additional options passed to the restore operation.
   """
 
-  # @callback restore(
-  #             repo :: Ecto.Repo.t(),
-  #             file :: String.t(),
-  #             repo_config :: map(),
-  #             options :: map()
-  #           ) ::
-  #             :ok | {:error, term()}
+  @callback restore(
+              repo :: Ecto.Repo.t(),
+              repo_config :: map(),
+              restore_file :: String.t(),
+              options :: map()
+            ) ::
+              :ok | {:error, term()}
 
   @spec backup(Ecto.Repo.t(), map(), String.t(), map()) ::
           {:ok, String.t()} | {:error, %EctoBackup.Error{}}
-  def backup(repo, repo_config, file, options) do
-    adapter_module(repo, repo_config).backup(repo, repo_config, file, options)
+  def backup(repo, repo_config, backup_file, options) do
+    adapter_module(repo, repo_config).backup(repo, repo_config, backup_file, options)
   end
 
-  # def restore(repo, repo_config, file, options) do
-  #   adapter_module(repo, repo_config).restore(repo, repo_config, file, options)
-  # end
+  def restore(repo, repo_config, restore_file, options) do
+    adapter_module(repo, repo_config).restore(repo, repo_config, restore_file, options)
+  end
 
   defp adapter_module(_repo, %{adapter: adapter}) when is_atom(adapter) do
     adapter

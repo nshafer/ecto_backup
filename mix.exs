@@ -35,7 +35,7 @@ defmodule EctoBackup.MixProject do
         Collectable.EctoBackup.CLI,
         EctoBackup.TestPGRepo,
         EctoBackup.SecondPGRepo,
-        EctoBackup.UnsupportedAdapter,
+        EctoBackup.UnsupportedEctoAdapter,
         EctoBackup.UnsupportedRepo
       ]
     ]

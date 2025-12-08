@@ -8,9 +8,9 @@ defmodule EctoBackup.Adapters.Postgres do
   server, so plan accordingly for remote databases.
 
   The `pg_dump` and `pg_restore` commands will be configured to connect to the database using the
-  provided repository configurations as explained in the
-  [Individual Repo Configuration](#module-individual-repo-configuration)
-  section of the main `EctoBackup` module documentation. Specifically:
+  provided repository configurations as explained in the [Individual Repo
+  Configuration](#module-individual-repo-configuration) section of the main `EctoBackup` module
+  documentation. Specifically:
 
     * `PGDATABASE` will be set from `:database`.
 
@@ -28,13 +28,13 @@ defmodule EctoBackup.Adapters.Postgres do
 
     * `:pg_dump_cmd` - The command to use for `pg_dump`. Defaults to `"pg_dump"`.
 
-    * `:pg_dump_args` - A list of arguments to pass to `pg_dump`. Defaults to
-      `["--verbose", "--format=c", "--no-owner"]`.
+    * `:pg_dump_args` - A list of arguments to pass to `pg_dump`. Defaults to `["--verbose",
+      "--format=c", "--no-owner"]`.
 
     * `:pg_restore_cmd` - The command to use for `pg_restore`. Defaults to `"pg_restore"`.
 
-    * `:pg_restore_args` - A list of arguments to pass to `pg_restore`. Defaults to
-      `["--verbose", "--clean", "--no-owner", "--no-acl"]`.
+    * `:pg_restore_args` - A list of arguments to pass to `pg_restore`. Defaults to `["--verbose",
+      "--clean", "--no-owner", "--no-acl"]`.
 
   ## A note on default arguments
     * The `--verbose` argument is required for progress and feedback during backup and restore
@@ -55,10 +55,12 @@ defmodule EctoBackup.Adapters.Postgres do
   During backup and restore operations, the following telemetry events are emitted:
 
     * `[:ecto_backup, :backup, :repo, :progress]` - Emitted periodically during backup to report
-      progress. Measurements include `:completed`, `:total`, and `:percent`.
+      progress. Due to how `pg_dump` works, this is emitted when dumping each table. Progress may
+      appear to stall for large tables. Measurements include `:completed`, `:total`, and
+      `:percent`. Metadata includes `:repo` and `:subject` (table name if applicable).
 
     * `[:ecto_backup, :backup, :repo, :message]` - Emitted for informational, warning, or error
-      messages from the backup process. Metadata includes `:level` and `:message`.
+      messages from the backup process. Metadata includes `:repo`, `:level` and `:message`.
 
   All telemetry events include the `:repo` in their metadata for context.
   """
@@ -66,6 +68,7 @@ defmodule EctoBackup.Adapters.Postgres do
   @behaviour EctoBackup.Adapter
 
   import Ecto.Query, only: [from: 2]
+  alias EctoBackup.CLI
   alias EctoBackup.Conf
   alias EctoBackup.Error
 
@@ -81,12 +84,12 @@ defmodule EctoBackup.Adapters.Postgres do
       cmd_opts = [
         env: env,
         lines: 1024,
-        on_output: on_output_fun(repo, table_count),
+        on_output: on_backup_output_fun(repo, table_count),
         into: nil
       ]
 
       try do
-        case EctoBackup.CLI.cmd({cmd, args}, cmd_opts) do
+        case CLI.cmd({cmd, args}, cmd_opts) do
           {nil, 0} ->
             {:ok, backup_file}
 
@@ -105,48 +108,39 @@ defmodule EctoBackup.Adapters.Postgres do
     end
   end
 
-  def on_output_fun(repo, total) do
-    fun = fn completed, line ->
-      emit_message_event(repo, line)
+  @impl true
+  def restore(repo, repo_config, restore_file, options) do
+    with(
+      {:ok, cmd} <- pg_restore_cmd(repo, repo_config, options),
+      {:ok, args} <- pg_restore_args(repo, repo_config, restore_file, options),
+      {:ok, env} <- pg_env(repo, repo_config),
+      {:ok, env} <- create_pgpass_file(repo, env, repo_config),
+      {:ok, tables} <- list_backup_file_tables(restore_file, pg_restore_cmd: cmd)
+    ) do
+      cmd_opts = [
+        env: env,
+        lines: 1024,
+        on_output: on_restore_output_fun(repo, length(tables)),
+        into: nil
+      ]
 
-      if total && String.starts_with?(line, "pg_dump: dumping contents of table") do
-        case Regex.run(~r/pg_dump: dumping contents of table "([^"]+)"/, line) do
-          [_full, table_name] ->
-            emit_progress_event(repo, completed, total, trim_table_name(table_name))
+      try do
+        case CLI.cmd({cmd, args}, cmd_opts) do
+          {nil, 0} ->
+            :ok
 
-          _ ->
-            emit_progress_event(repo, completed, total, nil)
+          {nil, exit_status} ->
+            {:error,
+             Error.exception(
+               reason: :pg_restore_failed,
+               message: "pg_restore failed with exit status #{exit_status}",
+               term: exit_status,
+               repo: repo
+             )}
         end
-
-        completed + 1
-      else
-        completed
+      after
+        cleanup_pgpass_file(env)
       end
-    end
-
-    {0, fun}
-  end
-
-  defp get_table_count(repo) do
-    fun = fn repo ->
-      query =
-        from t in "pg_tables",
-          where: t.schemaname != "information_schema" and not like(t.schemaname, "pg_%"),
-          select: count(t.tablename)
-
-      repo.one(query, log: false)
-    end
-
-    case Ecto.Migrator.with_repo(repo, fun) do
-      {:ok, ret, []} ->
-        {:ok, ret}
-
-      {:ok, ret, apps} ->
-        IO.puts("Table count apps started: #{inspect(apps)}")
-        {:ok, ret}
-
-      {:error, _} ->
-        {:ok, nil}
     end
   end
 
@@ -159,6 +153,24 @@ defmodule EctoBackup.Adapters.Postgres do
          Error.exception(
            reason: :pg_dump_cmd_not_found,
            message: "pg_dump command #{inspect(cmd)} not found in system PATH",
+           term: cmd,
+           repo: repo
+         )}
+
+      cmd ->
+        {:ok, cmd}
+    end
+  end
+
+  defp pg_restore_cmd(repo, repo_config, options) do
+    cmd = Conf.get(repo_config, options, :pg_restore_cmd, "pg_restore")
+
+    case System.find_executable(cmd) do
+      nil ->
+        {:error,
+         Error.exception(
+           reason: :pg_restore_cmd_not_found,
+           message: "pg_restore command #{inspect(cmd)} not found in system PATH",
            term: cmd,
            repo: repo
          )}
@@ -182,6 +194,23 @@ defmodule EctoBackup.Adapters.Postgres do
     else
       # Always add `--no-password` to avoid password prompt
       {:ok, args ++ ["--no-password", "--file", backup_file]}
+    end
+  end
+
+  defp pg_restore_args(repo, repo_config, restore_file, options) do
+    default_args = ["--verbose", "--clean", "--no-owner", "--no-acl"]
+    args = Conf.get(repo_config, options, :pg_restore_args, default_args)
+
+    if Enum.any?(args, fn arg -> arg in ["-d", "--dbname"] end) do
+      {:error,
+       Error.exception(
+         reason: :pg_restore_args_invalid,
+         message: "pg_restore_args cannot contain -d or --dbname argument",
+         repo: repo
+       )}
+    else
+      # Always add `--no-password` to avoid password prompt
+      {:ok, args ++ ["--no-password", "--dbname", repo_config[:database], restore_file]}
     end
   end
 
@@ -244,6 +273,111 @@ defmodule EctoBackup.Adapters.Postgres do
 
   defp cleanup_pgpass_file(_env), do: :ok
 
+  defp get_table_count(repo) do
+    fun = fn repo ->
+      query =
+        from t in "pg_tables",
+          where: t.schemaname != "information_schema" and not like(t.schemaname, "pg_%"),
+          select: count(t.tablename)
+
+      repo.one(query, log: false)
+    end
+
+    case Ecto.Migrator.with_repo(repo, fun) do
+      {:ok, ret, []} ->
+        {:ok, ret}
+
+      {:ok, ret, apps} ->
+        IO.puts("Table count apps started: #{inspect(apps)}")
+        {:ok, ret}
+
+      {:error, _} ->
+        {:ok, nil}
+    end
+  end
+
+  def on_backup_output_fun(repo, total) do
+    fun = fn completed, line ->
+      emit_message_event(:backup, repo, line)
+
+      if total && String.starts_with?(line, "pg_dump: dumping contents of table") do
+        case Regex.run(~r/pg_dump: dumping contents of table "([^"]+)"/, line) do
+          [_full, table_name] ->
+            emit_progress_event(:backup, repo, completed, total, trim_table_name(table_name))
+
+          _ ->
+            emit_progress_event(:backup, repo, completed, total, nil)
+        end
+
+        completed + 1
+      else
+        completed
+      end
+    end
+
+    {0, fun}
+  end
+
+  def on_restore_output_fun(repo, total) do
+    fun = fn completed, line ->
+      emit_message_event(:restore, repo, line)
+
+      if total && String.starts_with?(line, "pg_restore: processing data for table") do
+        case Regex.run(~r/processing data for table "([^"]+)"/, line) do
+          [_full, table_name] ->
+            emit_progress_event(:restore, repo, completed, total, trim_table_name(table_name))
+
+          _ ->
+            emit_progress_event(:restore, repo, completed, total, nil)
+        end
+
+        completed + 1
+      else
+        completed
+      end
+    end
+
+    {0, fun}
+  end
+
+  defp emit_progress_event(op, repo, completed, total, table_name) do
+    measurements = %{
+      completed: completed,
+      total: total
+    }
+
+    metadata = %{
+      repo: repo,
+      subject: table_name && "Table: #{table_name}"
+    }
+
+    :telemetry.execute([:ecto_backup, op, :repo, :progress], measurements, metadata)
+  end
+
+  defp emit_message_event(op, repo, message) do
+    level =
+      cond do
+        String.contains?(message, "error:") -> :error
+        String.contains?(message, "warning:") -> :warning
+        true -> :info
+      end
+
+    metadata = %{
+      repo: repo,
+      level: level,
+      message: message
+    }
+
+    :telemetry.execute([:ecto_backup, op, :repo, :message], %{}, metadata)
+  end
+
+  defp trim_table_name(table_name) do
+    table_name
+    |> String.trim()
+    |> String.trim("\"")
+    |> String.trim_leading("public.")
+  end
+
   @doc """
   Check if the given backup file is a valid PostgreSQL backup file and contains the expected
   tables.
@@ -257,7 +391,7 @@ defmodule EctoBackup.Adapters.Postgres do
       true <- File.exists?(backup_file),
       {:ok, %File.Stat{size: size}} <- File.stat(backup_file),
       true <- size > 0,
-      tables <- list_backup_file_tables(backup_file, opts)
+      {:ok, tables} <- list_backup_file_tables(backup_file, opts)
     ) do
       Enum.all?(expected_tables, &(&1 in tables))
     else
@@ -275,56 +409,32 @@ defmodule EctoBackup.Adapters.Postgres do
     - `:pg_restore_cmd` - The command to use for `pg_restore`. Defaults to `"pg_restore"` in
       the system path.
   """
-  def list_backup_file_tables(backup_file, opts) do
+  def list_backup_file_tables(backup_file, opts \\ []) do
     cmd = Keyword.get(opts, :pg_restore_cmd, "pg_restore")
-    {output, 0} = System.cmd(cmd, ["--list", backup_file])
 
-    output
-    |> String.split("\n")
-    |> Enum.map(fn line ->
-      case Regex.run(~r/^\d+;\s+(?:\d+\s+)?\d+\s+TABLE\s(?:(\S+)\s)?(\S+)\s(\S+)$/, line) do
-        [_full, _schema, table, _owner] -> table
-        _ -> nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
-  end
+    case CLI.cmd({cmd, ["--list", backup_file]}) do
+      {output, 0} ->
+        tables =
+          output
+          |> String.split("\n")
+          |> Enum.map(fn line ->
+            case Regex.run(~r/^\d+;\s+(?:\d+\s+)?\d+\s+TABLE\s(?:(\S+)\s)?(\S+)\s(\S+)$/, line) do
+              [_full, _schema, table, _owner] -> table
+              _ -> nil
+            end
+          end)
+          |> Enum.reject(&is_nil/1)
 
-  defp emit_progress_event(repo, completed, total, table_name) do
-    measurements = %{
-      completed: completed,
-      total: total
-    }
+        {:ok, tables}
 
-    metadata = %{
-      repo: repo,
-      subject: table_name && "Table: #{table_name}"
-    }
-
-    :telemetry.execute([:ecto_backup, :backup, :repo, :progress], measurements, metadata)
-  end
-
-  defp emit_message_event(repo, message) do
-    level =
-      cond do
-        String.contains?(message, "error:") -> :error
-        String.contains?(message, "warning:") -> :warning
-        true -> :info
-      end
-
-    metadata = %{
-      repo: repo,
-      level: level,
-      message: message
-    }
-
-    :telemetry.execute([:ecto_backup, :backup, :repo, :message], %{}, metadata)
-  end
-
-  defp trim_table_name(table_name) do
-    table_name
-    |> String.trim()
-    |> String.trim("\"")
-    |> String.trim_leading("public.")
+      {output, exit_status} ->
+        {:error,
+         Error.exception(
+           reason: :pg_restore_list_failed,
+           message:
+             "could not list tables in backup file #{backup_file}: #{exit_status}: #{output}",
+           term: exit_status
+         )}
+    end
   end
 end

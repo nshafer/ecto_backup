@@ -8,7 +8,7 @@ defmodule EctoBackup.Release do
   This is intended to be run via the `eval` command in a release, for example:
 
       bin/my_app eval "EctoBackup.Release.backup(\\"-v\\")"
-      bin/my_app eval "EctoBackup.Release.restore(\\"-r MyRepo -v\\")"
+      bin/my_app eval "EctoBackup.Release.restore(\\"-r MyRepo -v /path/to/file.db\\")"
 
   Arguments should be a string and are parsed similarly to the Mix tasks, see
   `Mix.Tasks.EctoBackup.Backup` and `Mix.Tasks.EctoBackup.Restore` for more details on available
@@ -42,6 +42,49 @@ defmodule EctoBackup.Release do
     else
       {:error, reason} -> CLI.fatal(reason, 1)
     end
+  rescue
+    e ->
+      CLI.fatal(e, 1)
+  after
+    CLI.detach()
+  end
+
+  @doc """
+  Restores an Ecto repository from a backup file in a release environment.
+
+  Accepts a string of arguments similar to those accepted by the `Mix.Tasks.EctoBackup.Restore` mix
+  task. They will be split with `OptionParser.split/1` and parsed exactly the same as the Mix
+  task.
+  """
+  @spec restore(String.t()) :: :ok | {:error, term()}
+  def restore(args \\ "") do
+    Application.ensure_all_started(:ecto_backup)
+    {options, restore_file} = OptionParser.split(args) |> CLI.parse_restore_args!()
+
+    restore_opts =
+      options
+      |> CLI.restore_opts_from_cli_opts()
+      |> Map.put_new(:confirm, {CLI, :confirm_restore, []})
+
+    if options.quiet do
+      CLI.shell(CLI.Shell.Quiet)
+    end
+
+    CLI.attach(options)
+
+    with {:ok, repo} <- EctoBackup.restore(restore_file, restore_opts) do
+      CLI.summarize_restore_result({:ok, repo})
+    else
+      {:error, reason} ->
+        CLI.fatal(reason, 1)
+
+      {:error, repo, error} ->
+        CLI.summarize_restore_result({:error, repo, error})
+        exit({:shutdown, 1})
+    end
+  rescue
+    e ->
+      CLI.fatal(e, 1)
   after
     CLI.detach()
   end

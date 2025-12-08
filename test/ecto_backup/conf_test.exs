@@ -122,8 +122,8 @@ defmodule EctoBackup.ConfTest do
 
     test "returns error if list is empty" do
       assert {:error, e} = Conf.get_repo_configs([])
-      assert %ConfError{reason: :invalid_repo_list} = e
-      assert Exception.message(e) =~ "invalid :repos configuration"
+      assert %ConfError{reason: :no_repos_to_backup} = e
+      assert Exception.message(e) =~ "no repositories to back up"
     end
 
     test "returns error on invalid repo specification" do

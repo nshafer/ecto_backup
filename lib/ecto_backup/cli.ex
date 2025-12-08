@@ -128,14 +128,43 @@ defmodule EctoBackup.CLI do
       error([
         if(shell() == EctoBackup.CLI.Shell.Quiet, do: "\n", else: ""),
         "Some backups completed with errors:\n",
-        format_results_summary(results)
+        format_backup_results_summary(results)
       ])
     else
       info([
         "Backup Summary:\n",
-        format_results_summary(results)
+        format_backup_results_summary(results)
       ])
     end
+  end
+
+  defp format_backup_results_summary(results) do
+    for result <- results do
+      format_backup_result(result)
+    end
+  end
+
+  defp format_backup_result({:ok, repo, backup_file}) do
+    [
+      [:green, "✔", :default_color],
+      " ",
+      format_repo(repo),
+      ": ",
+      backup_file,
+      "\n"
+    ]
+  end
+
+  defp format_backup_result({:error, repo, error}) do
+    [
+      [:red, "✘", :default_color],
+      " ",
+      format_repo(repo),
+      ": ",
+      :red,
+      Exception.message(error),
+      "\n"
+    ]
   end
 
   @doc """
@@ -152,6 +181,29 @@ defmodule EctoBackup.CLI do
       {:error, _, _} -> true
       _ -> false
     end)
+  end
+
+  def summarize_restore_result({:ok, repo}) do
+    info([
+      "Restore summary:\n",
+      [:green, "✔", :default_color],
+      " ",
+      format_repo(repo),
+      ": Restored successfully\n"
+    ])
+  end
+
+  def summarize_restore_result({:error, repo, error}) do
+    error([
+      "Restore completed with errors:\n",
+      [:red, "✘", :default_color],
+      " ",
+      format_repo(repo),
+      ": ",
+      :red,
+      Exception.message(error),
+      "\n"
+    ])
   end
 
   @doc """
@@ -185,6 +237,36 @@ defmodule EctoBackup.CLI do
     }
   end
 
+  def parse_restore_args!(args) do
+    switches = [
+      repo: :string,
+      verbose: :boolean,
+      quiet: :boolean,
+      confirm: :boolean
+    ]
+
+    aliases = [
+      r: :repo,
+      v: :verbose,
+      q: :quiet
+    ]
+
+    {opts, args} = OptionParser.parse!(args, strict: switches, aliases: aliases)
+
+    if length(args) != 1 do
+      raise OptionParser.ParseError, "restore_file argument is required"
+    end
+
+    options = %{
+      repo: opts[:repo] && Module.concat([opts[:repo]]),
+      verbose: opts[:verbose] || false,
+      quiet: opts[:quiet] || false,
+      confirm: opts[:confirm]
+    }
+
+    {options, List.first(args)}
+  end
+
   @doc """
   Converts command line options into backup options.
   """
@@ -194,6 +276,13 @@ defmodule EctoBackup.CLI do
     |> maybe_put_option(:backup_dir, Map.get(cli_opts, :backup_dir), nil)
   end
 
+  def restore_opts_from_cli_opts(cli_opts) do
+    %{}
+    |> maybe_put_option(:repo, Map.get(cli_opts, :repo), nil)
+    |> maybe_put_option(:confirm, Map.get(cli_opts, :confirm), nil)
+  end
+
+  # Puts the given key and value into the opts map unless the value is equal to not_value.
   defp maybe_put_option(opts, key, value, not_value)
   defp maybe_put_option(opts, _key, value, value), do: opts
   defp maybe_put_option(opts, key, value, _), do: Map.put(opts, key, value)
@@ -352,37 +441,6 @@ defmodule EctoBackup.CLI do
   end
 
   @doc """
-  Formats a summary of backup or restore results for terminal output using ANSI escape sequences.
-  """
-  @spec format_results_summary([EctoBackup.backup_result()]) :: [[term()]]
-  def format_results_summary(results) do
-    for result <- results do
-      case result do
-        {:ok, repo, backup_file} ->
-          [
-            [:green, "✔", :default_color],
-            " ",
-            format_repo(repo),
-            ": ",
-            backup_file,
-            "\n"
-          ]
-
-        {:error, repo, error} ->
-          [
-            [:red, "✘", :default_color],
-            " ",
-            format_repo(repo),
-            ": ",
-            :red,
-            Exception.message(error),
-            "\n"
-          ]
-      end
-    end
-  end
-
-  @doc """
   Returns the current local timestamp formatted as "HH:MM:SS.mmm".
   """
   @spec timestamp() :: String.t()
@@ -437,6 +495,20 @@ defmodule EctoBackup.CLI do
 
       true ->
         "#{duration}ms"
+    end
+  end
+
+  def confirm_restore() do
+    response =
+      "Are you sure you want to restore the database? This will overwrite existing data. (yes/NO)"
+      |> shell().prompt()
+      |> String.trim()
+      |> String.downcase()
+
+    case response do
+      "yes" -> true
+      "no" -> false
+      _ -> false
     end
   end
 end

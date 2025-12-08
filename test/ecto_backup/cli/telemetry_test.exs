@@ -9,6 +9,7 @@ defmodule EctoBackup.CLI.TelemetryTest do
 
     # Ensure no leftover messages in the inbox before each test
     EctoBackup.CLI.Shell.Process.flush()
+
     :ok
   end
 
@@ -23,7 +24,7 @@ defmodule EctoBackup.CLI.TelemetryTest do
     assert :ok = Telemetry.detach()
   end
 
-  describe "handle_event/4" do
+  describe "handle_event/4 for backup events" do
     test "handles backup start event for multiple repos" do
       Telemetry.handle_event(
         [:ecto_backup, :backup, :start],
@@ -143,6 +144,105 @@ defmodule EctoBackup.CLI.TelemetryTest do
 
       assert_received {:ecto_backup_shell, :info, message}
       assert message =~ "[Repo1] Verbose message"
+    end
+  end
+
+  describe "handle_event/4 for restore events" do
+    test "handles restore start event" do
+      Telemetry.handle_event(
+        [:ecto_backup, :restore, :start],
+        %{},
+        %{},
+        %{}
+      )
+
+      # No output expected for restore start
+      refute_received {:ecto_backup_shell, :info, _message}
+    end
+
+    test "handles restore stop event" do
+      Telemetry.handle_event(
+        [:ecto_backup, :restore, :stop],
+        %{},
+        %{},
+        %{}
+      )
+
+      # No output expected for restore stop
+      refute_received {:ecto_backup_shell, :info, _message}
+    end
+
+    test "handles repo restore start event" do
+      Telemetry.handle_event(
+        [:ecto_backup, :restore, :repo, :start],
+        %{},
+        %{repo: Repo1, repo_config: %{database: "repo1"}, restore_file: "/path/to/restore.sql"},
+        %{}
+      )
+
+      assert_received {:ecto_backup_shell, :info, message}
+      assert message =~ "[Repo1] Starting restore"
+      assert message =~ "/path/to/restore.sql"
+    end
+
+    test "handles repo restore stop event" do
+      Telemetry.handle_event(
+        [:ecto_backup, :restore, :repo, :stop],
+        %{duration: System.convert_time_unit(4, :second, :native)},
+        %{repo: Repo1},
+        %{}
+      )
+
+      assert_received {:ecto_backup_shell, :info, message}
+      assert message =~ "[Repo1] Restore completed in 4.0s"
+    end
+
+    test "handles repo restore progress event" do
+      Telemetry.handle_event(
+        [:ecto_backup, :restore, :repo, :progress],
+        %{completed: 75, total: 300},
+        %{repo: Repo1},
+        %{}
+      )
+
+      assert_received {:ecto_backup_shell, :status, status}
+      assert status =~ "Repo1"
+      assert status =~ "75/300"
+    end
+
+    test "handles repo restore message errors" do
+      Telemetry.handle_event(
+        [:ecto_backup, :restore, :repo, :message],
+        %{},
+        %{repo: Repo1, level: :error, message: "Restore error occurred"},
+        %{}
+      )
+
+      assert_received {:ecto_backup_shell, :error, message}
+      assert message =~ "[Repo1] Error: Restore error occurred"
+    end
+
+    test "does not output info messages during restore when not verbose" do
+      Telemetry.handle_event(
+        [:ecto_backup, :restore, :repo, :message],
+        %{},
+        %{repo: Repo1, level: :info, message: "Restore verbose message"},
+        %{verbose: false}
+      )
+
+      refute_received {:ecto_backup_shell, :info, _message}
+    end
+
+    test "handles repo restore message event with verbosity" do
+      Telemetry.handle_event(
+        [:ecto_backup, :restore, :repo, :message],
+        %{},
+        %{repo: Repo1, level: :info, message: "Restore verbose message"},
+        %{verbose: true}
+      )
+
+      assert_received {:ecto_backup_shell, :info, message}
+      assert message =~ "[Repo1] Restore verbose message"
     end
   end
 end

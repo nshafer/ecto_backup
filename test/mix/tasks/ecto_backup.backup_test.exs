@@ -28,6 +28,7 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
 
     # Ensure no leftover messages in the inbox before each test
     EctoBackup.CLI.Shell.Process.flush()
+
     :ok
   end
 
