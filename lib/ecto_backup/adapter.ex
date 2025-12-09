@@ -95,28 +95,44 @@ defmodule EctoBackup.Adapter do
   @spec backup(Ecto.Repo.t(), map(), String.t(), map()) ::
           {:ok, String.t()} | {:error, %EctoBackup.Error{}}
   def backup(repo, repo_config, backup_file, options) do
-    adapter_module(repo, repo_config).backup(repo, repo_config, backup_file, options)
+    case adapter_module(repo, repo_config) do
+      {:ok, adapter} -> adapter.backup(repo, repo_config, backup_file, options)
+      {:error, error} -> {:error, error}
+    end
   end
 
   def restore(repo, repo_config, restore_file, options) do
-    adapter_module(repo, repo_config).restore(repo, repo_config, restore_file, options)
+    case adapter_module(repo, repo_config) do
+      {:ok, adapter} -> adapter.restore(repo, repo_config, restore_file, options)
+      {:error, error} -> {:error, error}
+    end
   end
 
   defp adapter_module(_repo, %{adapter: adapter}) when is_atom(adapter) do
-    adapter
+    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :backup, 4) and
+         function_exported?(adapter, :restore, 4) do
+      {:ok, adapter}
+    else
+      {:error,
+       EctoBackup.Error.exception(
+         reason: :invalid_adapter,
+         message: "invalid adapter module #{inspect(adapter)}"
+       )}
+    end
   end
 
   defp adapter_module(repo, _repo_config) do
     case repo.__adapter__() do
-      Ecto.Adapters.Postgres -> EctoBackup.Adapters.Postgres
-      adapter -> raise_unsupported_ecto_adapter_error(repo, adapter)
-    end
-  end
+      Ecto.Adapters.Postgres ->
+        {:ok, EctoBackup.Adapters.Postgres}
 
-  defp raise_unsupported_ecto_adapter_error(repo, adapter) do
-    raise EctoBackup.Error,
-      reason: :unsupported_ecto_adapter,
-      repo: repo,
-      message: "unsupported Ecto adapter #{inspect(adapter)} for repo #{inspect(repo)}"
+      adapter ->
+        {:error,
+         EctoBackup.Error.exception(
+           reason: :unsupported_ecto_adapter,
+           repo: repo,
+           message: "unsupported Ecto adapter #{inspect(adapter)} for repo #{inspect(repo)}"
+         )}
+    end
   end
 end

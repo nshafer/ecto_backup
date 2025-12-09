@@ -174,14 +174,9 @@ defmodule EctoBackup do
 
     :telemetry.span([:ecto_backup, :backup, :repo], metadata, fn ->
       result =
-        try do
-          case Adapter.backup(repo, repo_config, backup_file, options) do
-            {:ok, file} -> {:ok, repo, file}
-            {:error, error} -> {:error, repo, error}
-          end
-        rescue
-          e ->
-            {:error, repo, e}
+        case Adapter.backup(repo, repo_config, backup_file, options) do
+          {:ok, file} -> {:ok, repo, file}
+          {:error, error} -> {:error, repo, error}
         end
 
       {result, Map.put(metadata, :result, result)}
