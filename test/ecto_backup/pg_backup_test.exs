@@ -3,7 +3,6 @@ defmodule EctoBackup.PGBackupTest do
   alias EctoBackup.Error
   alias EctoBackup.ConfError
   alias EctoBackup.TestPGRepo
-  alias EctoBackup.UnsupportedRepo
   alias EctoBackup.Adapters.Postgres
 
   doctest EctoBackup
@@ -114,14 +113,6 @@ defmodule EctoBackup.PGBackupTest do
     test "returns error if no backup_dir or backup_file is configured" do
       assert {:error, %ConfError{reason: :no_backup_dir_set}} =
                EctoBackup.backup(repos: [TestPGRepo])
-    end
-  end
-
-  describe "UnsupportedRepo - EctoBackup.backup/1" do
-    test "returns error for unsupported adapter" do
-      opts = [repos: [UnsupportedRepo], backup_dir: "/tmp"]
-      results = EctoBackup.backup(opts)
-      assert {:ok, [{:error, _, %Error{reason: :unsupported_ecto_adapter}}]} = results
     end
   end
 end
