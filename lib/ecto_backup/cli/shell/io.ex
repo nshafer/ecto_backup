@@ -1,8 +1,9 @@
 defmodule EctoBackup.CLI.Shell.IO do
   @moduledoc """
-    The default shell for EctoBackup CLI interactions. This simply prints messages to standard
-    output and error, with support for a persistent status line if ANSI escape sequences are
-    enabled. If ANSI is not enabled, status messages are ignored.
+  The default shell for EctoBackup CLI interactions.
+
+  This simply prints messages to standard output and error, with support for a persistent status
+  line if ANSI escape sequences are enabled. If ANSI is not enabled, status messages are ignored.
   """
 
   @behaviour EctoBackup.CLI.Shell

@@ -10,7 +10,7 @@ defmodule Mix.Tasks.EctoBackup.Restore do
   ## Command Line Options
 
     - `-r`, `--repo`       - Specify exactly one Ecto repository to restore. Required if more
-      than one repository is configured.
+      than one repo is configured in the `:ecto_backup` application configuration.
     - `-v`, `--verbose`    - Enable verbose logging output.
     - `-q`, `--quiet`      - Suppress all output except for warnings and errors.
   """

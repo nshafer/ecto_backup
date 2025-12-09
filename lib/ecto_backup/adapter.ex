@@ -12,9 +12,14 @@ defmodule EctoBackup.Adapter do
 
   ### Message
 
-  Event name: `[:ecto_backup, :backup, :repo, :message]`
+  Events:
 
-  Emitted to log a message during the backup or restore process. The metadata must include:
+    - `[:ecto_backup, :backup, :repo, :message]`
+    - `[:ecto_backup, :restore, :repo, :message]`
+
+  Emitted to log a message during the backup or restore process.
+
+  The metadata must include:
 
     - `:repo`        - The Ecto repository module being backed up or restored.
     - `:level`       - The log level, one of `:info`, `:warning`, or `:error`.
@@ -22,10 +27,14 @@ defmodule EctoBackup.Adapter do
 
   ### Progress
 
-  Event name: `[:ecto_backup, :backup, :repo, :progress]`
+  Events:
 
-  Emitted to indicate progress during the backup or restore process. The measurements must
-  include:
+    - `[:ecto_backup, :backup, :repo, :progress]`
+    - `[:ecto_backup, :restore, :repo, :progress]`
+
+  Emitted to indicate progress during the backup or restore process.
+
+  The measurements must include:
 
     - `:completed`  - The number of units completed (e.g., bytes, tables, etc.).
     - `:total`      - The total number of units to complete.
@@ -33,9 +42,12 @@ defmodule EctoBackup.Adapter do
   The metadata must include:
 
     - `:repo`       - The Ecto repository module being backed up or restored.
-    - `:subject`    - (optional) A string indicating the subject of the progress (e.g., table
-      name) or `nil` for a default subject.
-    - `:label`      - (optional) A label for the measurement, e.g., `"MiB"`, `GB`, etc.
+
+  The metadata may optionally include:
+
+    - `:subject`    - A string indicating the subject of the progress (e.g., table name) or `nil`
+      for a default subject.
+    - `:label`      - A label for the measurement, e.g., `"MiB"`, `GB`, etc.
 
   """
 
@@ -51,14 +63,11 @@ defmodule EctoBackup.Adapter do
 
   ## Parameters
 
-    * `repo`         - The Ecto repository module to back up.
-
-    * `repo_config`  - A map of repository-specific options, merged from various configuration
+    - `repo`         - The Ecto repository module to back up.
+    - `repo_config`  - A map of repository-specific options, merged from various configuration
       sources.
-
-    * `backup_file`  - The path to the backup file where the database dump should be stored.
-
-    * `options`      - A map of additional options passed to the backup operation.
+    - `backup_file`  - The path to the backup file where the database dump should be stored.
+    - `options`      - A map of additional options passed to the backup operation.
   """
   @callback backup(
               repo :: Ecto.Repo.t(),
@@ -73,15 +82,12 @@ defmodule EctoBackup.Adapter do
 
   ## Parameters
 
-    * `repo`         - The Ecto repository module to restore.
-
-    * `repo_config`  - A map of repository-specific options, merged from various configuration
+    - `repo`         - The Ecto repository module to restore.
+    - `repo_config`  - A map of repository-specific options, merged from various configuration
       sources.
-
-    * `restore_file` - The path to the backup file from which the database dump should be
+    - `restore_file` - The path to the backup file from which the database dump should be
       restored.
-
-    * `options`      - A map of additional options passed to the restore operation.
+    - `options`      - A map of additional options passed to the restore operation.
   """
 
   @callback restore(

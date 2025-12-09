@@ -4,6 +4,14 @@ defmodule EctoBackup.ConfError do
   """
   defexception [:reason, :repo, :value, :message]
 
+  @type t :: %__MODULE__{
+          reason: atom(),
+          repo: Ecto.Repo.t() | nil,
+          value: term() | nil,
+          message: String.t() | nil
+        }
+
+  @impl true
   def message(%{message: message}) when is_binary(message), do: message
 
   def message(%{reason: :invalid_repo_list, value: repo_list}) do

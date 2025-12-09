@@ -5,7 +5,10 @@ defmodule EctoBackup.Release do
   This is similar to how the Mix tasks work in a development environment, but is designed to be
   used in a release where Mix is not available.
 
-  This is intended to be run via the `eval` command in a release, for example:
+  You can use `mix ecto_backup.gen.release` to generate convenience scripts for performing backup
+  and restore operations in a release. See `Mix.Tasks.EctoBackup.Gen.Release` for more details.
+
+  These functions are intended to be run via the `eval` command in a release, for example:
 
       bin/my_app eval "EctoBackup.Release.backup(\\"-v\\")"
       bin/my_app eval "EctoBackup.Release.restore(\\"-r MyRepo -v /path/to/file.db\\")"

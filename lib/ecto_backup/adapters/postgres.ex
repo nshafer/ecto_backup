@@ -3,63 +3,52 @@ defmodule EctoBackup.Adapters.Postgres do
   Adapter module implementing backup and restore for PostgreSQL databases.
 
   This will use `pg_dump` and `pg_restore` command line tools to perform the backup and restore
-  operations, and so those utilities must be installed and available in the system's PATH. It is
-  important to also note that this means the backup will be transferred to/from the database
-  server, so plan accordingly for remote databases.
+  operations, and so those utilities must be installed and available in the system's `$PATH`. It
+  is important to also note that this means that backups will be transferred from the database
+  server to the local machine, and restores will be transferred from the local machine to the
+  database server, so plan accordingly for remote databases.
 
   The `pg_dump` and `pg_restore` commands will be configured to connect to the database using the
   provided repository configurations as explained in the [Individual Repo
   Configuration](#module-individual-repo-configuration) section of the main `EctoBackup` module
   documentation. Specifically:
 
-    * `PGDATABASE` will be set from `:database`.
-
-    * `PGHOST` will be set from `:socket`, `:socket_dir`, or `:hostname` in that order.
-
-    * `PGOPTIONS` will be set from `:options` if provided.
-
-    * `PGPORT` will be set from `:port`, defaulting to `5432` if not provided.
-
-    * `PGUSER` will be set from `:username`.
-
-    * Password will be provided via a securely created `.pgpass` file if `:password` is provided.
+    - `PGDATABASE` will be set from `:database`.
+    - `PGHOST` will be set from `:socket`, `:socket_dir`, or `:hostname` in that order.
+    - `PGOPTIONS` will be set from `:options` if provided.
+    - `PGPORT` will be set from `:port`, defaulting to `5432` if not provided.
+    - `PGUSER` will be set from `:username`.
+    - Password will be provided via a securely created `.pgpass` file if `:password` is provided.
 
   Additional repo configuration options supported by this adapter:
 
-    * `:pg_dump_cmd` - The command to use for `pg_dump`. Defaults to `"pg_dump"`.
-
-    * `:pg_dump_args` - A list of arguments to pass to `pg_dump`. Defaults to `["--verbose",
-      "--format=c", "--no-owner"]`.
-
-    * `:pg_restore_cmd` - The command to use for `pg_restore`. Defaults to `"pg_restore"`.
-
-    * `:pg_restore_args` - A list of arguments to pass to `pg_restore`. Defaults to `["--verbose",
-      "--clean", "--no-owner", "--no-acl"]`.
+    - `:pg_dump_cmd` - The command to use for `pg_dump`. Defaults to `"pg_dump"`.
+    - `:pg_dump_args` - A list of arguments to pass to `pg_dump`. Defaults to `["--verbose",
+      "--format=c", "--no-owner"]`. See the note below on default arguments.
+    - `:pg_restore_cmd` - The command to use for `pg_restore`. Defaults to `"pg_restore"`.
+    - `:pg_restore_args` - A list of arguments to pass to `pg_restore`. Defaults to `["--verbose",
+      "--clean", "--no-owner", "--no-acl"]`. See the note below on default arguments.
 
   ## A note on default arguments
-    * The `--verbose` argument is required for progress and feedback during backup and restore
+    - The `--verbose` argument is required for progress and feedback during backup and restore
       operations.
-
-    * The `--format=c` argument for `pg_dump` creates a custom-format dump file, which is the most
+    - The `--format=c` argument for `pg_dump` creates a custom-format dump file, which is the most
       flexible format, and compressed by default.
-    * The `--no-owner` argument prevents ownership information from being included in the dump,
+    - The `--no-owner` argument prevents ownership information from being included in the dump,
       which can be useful when restoring to a different database or user.
-
-    * The `--clean` argument for `pg_restore` ensures that existing database objects are dropped
+    - The `--clean` argument for `pg_restore` ensures that existing database objects are dropped
       before being recreated from the dump.
-
-    * The `--no-acl` argument prevents access control lists from being restored, which can help
+    - The `--no-acl` argument prevents access control lists from being restored, which can help
       avoid permission issues during restore.
 
   ## Telemetry Events
   During backup and restore operations, the following telemetry events are emitted:
 
-    * `[:ecto_backup, :backup, :repo, :progress]` - Emitted periodically during backup to report
+    - `[:ecto_backup, :backup, :repo, :progress]` - Emitted periodically during backup to report
       progress. Due to how `pg_dump` works, this is emitted when dumping each table. Progress may
       appear to stall for large tables. Measurements include `:completed`, `:total`, and
       `:percent`. Metadata includes `:repo` and `:subject` (table name if applicable).
-
-    * `[:ecto_backup, :backup, :repo, :message]` - Emitted for informational, warning, or error
+    - `[:ecto_backup, :backup, :repo, :message]` - Emitted for informational, warning, or error
       messages from the backup process. Metadata includes `:repo`, `:level` and `:message`.
 
   All telemetry events include the `:repo` in their metadata for context.
@@ -296,7 +285,7 @@ defmodule EctoBackup.Adapters.Postgres do
     end
   end
 
-  def on_backup_output_fun(repo, total) do
+  defp on_backup_output_fun(repo, total) do
     fun = fn completed, line ->
       emit_message_event(:backup, repo, line)
 
@@ -318,7 +307,7 @@ defmodule EctoBackup.Adapters.Postgres do
     {0, fun}
   end
 
-  def on_restore_output_fun(repo, total) do
+  defp on_restore_output_fun(repo, total) do
     fun = fn completed, line ->
       emit_message_event(:restore, repo, line)
 

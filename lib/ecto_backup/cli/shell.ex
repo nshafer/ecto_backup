@@ -1,8 +1,10 @@
 defmodule EctoBackup.CLI.Shell do
   @moduledoc """
-    This is very similar to `Mix.Shell` but tailored for EctoBackup's needs, such as including
-    support for a persistent status line, which is maintained across other output via ANSI control
-    sequences, where available. It is also available in release environments, unlike Mix.
+  A shell implementation for EctoBackup CLI interactions.
+
+  This is very similar to `Mix.Shell` but tailored for EctoBackup's needs, such as including
+  support for a persistent status line, which is maintained across other output via ANSI control
+  sequences, where available. It is also available in release environments, unlike Mix.
   """
   @type cmd_opts :: [
           {:stderr_to_stdout, boolean()}

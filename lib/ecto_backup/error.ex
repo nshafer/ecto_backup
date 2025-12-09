@@ -2,7 +2,14 @@ defmodule EctoBackup.Error do
   @moduledoc """
   Exception module for EctoBackup errors.
   """
-  defexception [:reason, :term, :repo, :message, :mix]
+  defexception [:reason, :term, :repo, :message]
+
+  @type t :: %__MODULE__{
+          reason: atom(),
+          term: term(),
+          repo: Ecto.Repo.t() | nil,
+          message: String.t() | nil
+        }
 
   @impl true
   def message(%EctoBackup.Error{message: message}) when is_binary(message), do: message
