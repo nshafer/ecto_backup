@@ -20,5 +20,9 @@ erl_crash.dump
 ecto_backup-*.tar
 
 # Temporary files, for example, from tests.
-/tmp/
 /local/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
