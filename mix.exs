@@ -33,10 +33,12 @@ defmodule EctoBackup.MixProject do
     [
       ignore_modules: [
         Collectable.EctoBackup.CLI,
+        EctoBackup.TestRepo,
+        EctoBackup.SecondTestRepo,
         EctoBackup.TestPGRepo,
-        EctoBackup.SecondPGRepo,
-        EctoBackup.UnsupportedEctoAdapter,
-        EctoBackup.UnsupportedRepo
+        EctoBackup.SecondTestPGRepo,
+        EctoBackup.StubAdapter,
+        EctoBackup.StubEctoAdapter
       ]
     ]
   end

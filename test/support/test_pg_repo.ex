@@ -8,6 +8,7 @@ defmodule EctoBackup.TestPGRepo do
     password = System.get_env("PGPASSWORD") || "postgres"
     database = System.get_env("PGDATABASE") || "ecto_backup_test"
     hostname = System.get_env("PGHOST") || "localhost"
+
     {:ok, [url: "ecto://#{username}:#{password}@#{hostname}/#{database}"] ++ opts}
   end
 

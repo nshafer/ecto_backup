@@ -1,4 +1,4 @@
-defmodule EctoBackup.UnsupportedEctoAdapter do
+defmodule EctoBackup.StubEctoAdapter do
   @moduledoc """
   A dummy Ecto.Adapter module to simulate an unsupported database adapter for testing purposes.
   """

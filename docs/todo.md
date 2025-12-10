@@ -1,19 +1,26 @@
 # TODO
 
-- [ ] restore/1
+- [x] backup/1
+- [x] restore/1
 - [ ] backup!/1
 - [ ] restore!/1
-- [ ] mix tasks
-- [ ] release tasks
-- [ ] release script generator
+- [x] mix tasks
+- [x] release tasks
+- [x] release script generator
 - [ ] scheduler
 - [ ] post-backup handlers
 - [ ] pre-restore handlers
+- [ ] CI tests
+
+## Adapters
+- [x] Postgres
+- [ ] MySQL
+- [ ] SQLite
 
 ## Post-backup handlers
 - [ ] file cp
-- [ ] object storage upload
 - [ ] file pruning
+- [ ] object storage upload
 - [ ] object storage pruning
 
 ## Pre-restore handlers

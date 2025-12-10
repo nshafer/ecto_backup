@@ -1,8 +1,8 @@
 defmodule EctoBackup.IOTest do
   use ExUnit.Case
   use Patch
-  alias EctoBackup.TestPGRepo
-  alias EctoBackup.SecondPGRepo
+  alias EctoBackup.TestRepo
+  alias EctoBackup.SecondTestRepo
   alias EctoBackup.CLI
 
   doctest EctoBackup.CLI
@@ -22,24 +22,24 @@ defmodule EctoBackup.IOTest do
       assert :ok == CLI.info("This is an info message")
       assert_received {:ecto_backup_shell, :info, "This is an info message"}
 
-      assert :ok = CLI.info(TestRepo, "This is a repo info message")
-      assert_received {:ecto_backup_shell, :info, "[TestRepo] This is a repo info message"}
+      assert :ok = CLI.info(Repo, "This is a repo info message")
+      assert_received {:ecto_backup_shell, :info, "[Repo] This is a repo info message"}
     end
 
     test "prints warning message" do
       assert :ok == CLI.warning("This is a warning message")
       assert_received {:ecto_backup_shell, :warning, "This is a warning message"}
 
-      assert :ok = CLI.warning(TestRepo, "This is a repo warning message")
-      assert_received {:ecto_backup_shell, :warning, "[TestRepo] This is a repo warning message"}
+      assert :ok = CLI.warning(Repo, "This is a repo warning message")
+      assert_received {:ecto_backup_shell, :warning, "[Repo] This is a repo warning message"}
     end
 
     test "prints error message" do
       assert :ok == CLI.error("This is an error message")
       assert_received {:ecto_backup_shell, :error, "This is an error message"}
 
-      assert :ok = CLI.error(TestRepo, "This is a repo error message")
-      assert_received {:ecto_backup_shell, :error, "[TestRepo] This is a repo error message"}
+      assert :ok = CLI.error(Repo, "This is a repo error message")
+      assert_received {:ecto_backup_shell, :error, "[Repo] This is a repo error message"}
     end
   end
 
@@ -91,16 +91,16 @@ defmodule EctoBackup.IOTest do
     test "parses command line arguments into options map" do
       args = [
         "-r",
-        "EctoBackup.TestPGRepo",
+        "EctoBackup.TestRepo",
         "--repo",
-        "AnotherRepo",
+        "EctoBackup.SecondTestRepo",
         "--backup-dir",
         "/tmp/backups",
         "-v"
       ]
 
       options = CLI.parse_backup_args!(args)
-      assert options[:repos] == [TestPGRepo, AnotherRepo]
+      assert options[:repos] == [TestRepo, SecondTestRepo]
       assert options[:backup_dir] == "/tmp/backups"
       assert options[:verbose] == true
     end
@@ -109,21 +109,21 @@ defmodule EctoBackup.IOTest do
   describe "summarize_backup_results/1" do
     test "prints summary when all backups succeed" do
       results = [
-        {:ok, TestPGRepo, "/path/to/backup1.sql"},
-        {:ok, SecondPGRepo, "/path/to/backup2.sql"}
+        {:ok, TestRepo, "/path/to/backup1.sql"},
+        {:ok, SecondTestRepo, "/path/to/backup2.sql"}
       ]
 
       CLI.summarize_backup_results(results)
 
       assert_received {:ecto_backup_shell, :info, "Backup Summary:\n" <> rest}
-      assert rest =~ "✔ EctoBackup.TestPGRepo"
-      assert rest =~ "✔ EctoBackup.SecondPGRepo"
+      assert rest =~ "✔ EctoBackup.TestRepo"
+      assert rest =~ "✔ EctoBackup.SecondTestRepo"
     end
 
     test "prints error summary when some backups fail" do
       results = [
-        {:ok, TestPGRepo, "/path/to/backup1.sql"},
-        {:error, SecondPGRepo, EctoBackup.Error.exception("Connection failed")}
+        {:ok, TestRepo, "/path/to/backup1.sql"},
+        {:error, SecondTestRepo, EctoBackup.Error.exception("Connection failed")}
       ]
 
       CLI.summarize_backup_results(results)
@@ -131,33 +131,33 @@ defmodule EctoBackup.IOTest do
       assert_received {:ecto_backup_shell, :error,
                        "Some backups completed with errors:\n" <> rest}
 
-      assert rest =~ "✔ EctoBackup.TestPGRepo: /path/to/backup1.sql"
-      assert rest =~ "✘ EctoBackup.SecondPGRepo: Connection failed"
+      assert rest =~ "✔ EctoBackup.TestRepo: /path/to/backup1.sql"
+      assert rest =~ "✘ EctoBackup.SecondTestRepo: Connection failed"
     end
   end
 
   describe "summarize_restore_result/1" do
     test "prints success message on successful restore" do
-      CLI.summarize_restore_result({:ok, TestPGRepo})
+      CLI.summarize_restore_result({:ok, TestRepo})
 
       assert_received {:ecto_backup_shell, :info, "Restore summary:\n" <> rest}
-      assert rest =~ "✔ EctoBackup.TestPGRepo: Restored successfully"
+      assert rest =~ "✔ EctoBackup.TestRepo: Restored successfully"
     end
 
     test "prints error message on failed restore" do
       e = EctoBackup.Error.exception("Restore failed")
-      CLI.summarize_restore_result({:error, TestPGRepo, e})
+      CLI.summarize_restore_result({:error, TestRepo, e})
 
       assert_received {:ecto_backup_shell, :error, "Restore completed with errors:\n" <> rest}
-      assert rest =~ "✘ EctoBackup.TestPGRepo: Restore failed"
+      assert rest =~ "✘ EctoBackup.TestRepo: Restore failed"
     end
   end
 
   describe "exit_if_errors/2" do
     test "exits when there are errors in results" do
       results = [
-        {:ok, TestPGRepo, "/path/to/backup1.sql"},
-        {:error, SecondPGRepo, EctoBackup.Error.exception("Connection failed")}
+        {:ok, TestRepo, "/path/to/backup1.sql"},
+        {:error, SecondTestRepo, EctoBackup.Error.exception("Connection failed")}
       ]
 
       assert catch_exit(CLI.exit_if_errors(results)) == {:shutdown, 1}
@@ -166,8 +166,8 @@ defmodule EctoBackup.IOTest do
 
     test "does not exit when all backups succeed" do
       results = [
-        {:ok, TestPGRepo, "/path/to/backup1.sql"},
-        {:ok, SecondPGRepo, "/path/to/backup2.sql"}
+        {:ok, TestRepo, "/path/to/backup1.sql"},
+        {:ok, SecondTestRepo, "/path/to/backup2.sql"}
       ]
 
       assert nil == CLI.exit_if_errors(results, 99)
@@ -176,15 +176,15 @@ defmodule EctoBackup.IOTest do
 
   describe "format_progress/4" do
     test "formats progress bar with subject and label" do
-      progress_bar = CLI.format_progress("EctoBackup.TestPGRepo", 15, 36, "MiB", 70)
+      progress_bar = CLI.format_progress("EctoBackup.TestRepo", 15, 36, "MiB", 70)
       str = IO.ANSI.format(progress_bar, false) |> IO.chardata_to_string()
-      assert str == "EctoBackup.TestPGRepo         15/36 MiB [#########-------------]  41% "
+      assert str == "EctoBackup.TestRepo           15/36 MiB [#########-------------]  41% "
     end
 
     test "formats progress bar without label" do
-      progress_bar = CLI.format_progress("EctoBackup.TestPGRepo", 45, 145, nil, 70)
+      progress_bar = CLI.format_progress("EctoBackup.TestRepo", 45, 145, nil, 70)
       str = IO.ANSI.format(progress_bar, false) |> IO.chardata_to_string()
-      assert str == "EctoBackup.TestPGRepo            45/145 [######----------------]  31% "
+      assert str == "EctoBackup.TestRepo              45/145 [######----------------]  31% "
     end
 
     test "formats progress bar with long subject and label" do

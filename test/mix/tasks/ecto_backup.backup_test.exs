@@ -1,20 +1,15 @@
 defmodule Mix.Tasks.EctoBackup.BackupTest do
   use ExUnit.Case
-  alias EctoBackup.TestPGRepo
-  alias EctoBackup.SecondPGRepo
+  alias EctoBackup.TestRepo
+  alias EctoBackup.SecondTestRepo
+  alias EctoBackup.StubAdapter
 
   def raise_err(_repo, _repo_config) do
     raise "Intentional exception for testing"
   end
 
   setup_all do
-    # Create test database for all tests in this module
-    TestPGRepo.create_db()
-    start_supervised!(TestPGRepo)
-    TestPGRepo.create_default_tables()
-    TestPGRepo.insert_test_data(10)
-    on_exit(fn -> TestPGRepo.drop_db() end)
-
+    # Create a temporary directory for backups
     Temp.track!()
     backup_dir = Temp.mkdir!(prefix: "ecto_backup_test_")
     # backup_dir = "local/backups"
@@ -23,6 +18,12 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
   end
 
   setup do
+    # Configure the TestRepos to use the StubAdapter for all tests
+    Application.put_env(:ecto_backup, TestRepo, adapter: StubAdapter)
+    Application.put_env(:ecto_backup, SecondTestRepo, adapter: StubAdapter)
+    on_exit(fn -> Application.delete_env(:ecto_backup, TestRepo) end)
+    on_exit(fn -> Application.delete_env(:ecto_backup, SecondTestRepo) end)
+
     # Set the CLI shell to Process to send messages to the test process
     EctoBackup.CLI.shell(EctoBackup.CLI.Shell.Process)
 
@@ -34,15 +35,15 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
 
   describe "run/1" do
     test "successfully backs up a specified repo", %{backup_dir: backup_dir} do
-      args = ["-r", "EctoBackup.TestPGRepo", "--backup-dir", backup_dir]
+      args = ["-r", "EctoBackup.TestRepo", "--backup-dir", backup_dir]
       Mix.Tasks.EctoBackup.Backup.run(args)
       assert_received {:ecto_backup_shell, :info, "Backup Summary:\n" <> rest}
-      assert String.contains?(rest, "✔ EctoBackup.TestPGRepo")
+      assert String.contains?(rest, "✔ EctoBackup.TestRepo")
       # EctoBackup.CLI.Shell.Process.flush(&IO.inspect/1)
     end
 
     test "successfully backups up a couple default repos", %{backup_dir: backup_dir} do
-      Application.put_env(:ecto_backup, :repos, [TestPGRepo, SecondPGRepo])
+      Application.put_env(:ecto_backup, :repos, [TestRepo, SecondTestRepo])
       on_exit(fn -> Application.delete_env(:ecto_backup, :repos) end)
 
       Application.put_env(:ecto_backup, :backup_dir, backup_dir)
@@ -50,21 +51,17 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
 
       Mix.Tasks.EctoBackup.Backup.run([])
       assert_received {:ecto_backup_shell, :info, "Backup Summary:\n" <> rest}
-      assert String.contains?(rest, "✔ EctoBackup.TestPGRepo")
-      assert String.contains?(rest, "✔ EctoBackup.SecondPGRepo")
+      assert String.contains?(rest, "✔ EctoBackup.TestRepo")
+      assert String.contains?(rest, "✔ EctoBackup.SecondTestRepo")
       # EctoBackup.CLI.Shell.Process.flush(&IO.inspect/1)
     end
 
     test "outputs verbose logs when --verbose is specified", %{backup_dir: backup_dir} do
-      args = ["-r", "EctoBackup.TestPGRepo", "--backup-dir", backup_dir, "--verbose"]
+      args = ["-r", "EctoBackup.TestRepo", "--backup-dir", backup_dir, "--verbose"]
       Mix.Tasks.EctoBackup.Backup.run(args)
-
-      assert_received {:ecto_backup_shell, :info,
-                       "[EctoBackup.TestPGRepo] pg_dump: dumping contents of " <>
-                         "table \"public.test_table_one\""}
-
+      assert_received {:ecto_backup_shell, :info, "[EctoBackup.TestRepo] dumping stub data"}
       assert_received {:ecto_backup_shell, :info, "Backup Summary:" <> rest}
-      assert rest =~ "✔ EctoBackup.TestPGRepo"
+      assert rest =~ "✔ EctoBackup.TestRepo"
       # EctoBackup.CLI.Shell.Process.flush(&IO.inspect/1)
     end
 
@@ -79,7 +76,7 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
     end
 
     test "handles invalid backup directory gracefully" do
-      args = ["-r", "EctoBackup.TestPGRepo", "--backup-dir", 12345]
+      args = ["-r", "EctoBackup.TestRepo", "--backup-dir", 12345]
       assert catch_exit(Mix.Tasks.EctoBackup.Backup.run(args)) == {:shutdown, 1}
 
       assert_received {:ecto_backup_shell, :error,
@@ -88,25 +85,27 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
     end
 
     test "handles invalid backup_file gracefully", %{backup_dir: backup_dir} do
-      Application.put_env(:ecto_backup, TestPGRepo, backup_file: "/invalid/path/to/backup.db")
-      on_exit(fn -> Application.delete_env(:ecto_backup, TestPGRepo) end)
+      Application.put_env(:ecto_backup, TestRepo,
+        adapter: StubAdapter,
+        backup_file: "invalid_backup_file.db"
+      )
 
-      args = ["-r", "EctoBackup.TestPGRepo", "--backup-dir", backup_dir]
+      args = ["-r", "EctoBackup.TestRepo", "--backup-dir", backup_dir]
       assert catch_exit(Mix.Tasks.EctoBackup.Backup.run(args)) == {:shutdown, 1}
-
-      assert_received {:ecto_backup_shell, :error,
-                       "[EctoBackup.TestPGRepo] Error: pg_dump: error: could not open output " <>
-                         "file \"/invalid/path/to/backup.db\": No such file or directory"}
-
+      assert_received {:ecto_backup_shell, :error, error}
+      assert error == "[EctoBackup.TestRepo] Error: Invalid backup file"
       assert_received {:ecto_backup_shell, :error, "Some backups completed with errors:" <> rest}
-      assert rest =~ "✘ EctoBackup.TestPGRepo"
+      assert rest =~ "✘ EctoBackup.TestRepo"
       # EctoBackup.CLI.Shell.Process.flush(&IO.inspect/1)
     end
 
     test "raises on user caused exception", %{backup_dir: backup_dir} do
-      Application.put_env(:ecto_backup, TestPGRepo, backup_file: {__MODULE__, :raise_err, []})
-      on_exit(fn -> Application.delete_env(:ecto_backup, TestPGRepo) end)
-      args = ["-r", "EctoBackup.TestPGRepo", "--backup-dir", backup_dir]
+      Application.put_env(:ecto_backup, TestRepo,
+        adapter: StubAdapter,
+        backup_file: {__MODULE__, :raise_err, []}
+      )
+
+      args = ["-r", "EctoBackup.TestRepo", "--backup-dir", backup_dir]
 
       assert_raise RuntimeError, "Intentional exception for testing", fn ->
         Mix.Tasks.EctoBackup.Backup.run(args)
@@ -114,7 +113,7 @@ defmodule Mix.Tasks.EctoBackup.BackupTest do
     end
 
     test "quiet mode suppresses non-error output", %{backup_dir: backup_dir} do
-      args = ["-r", "EctoBackup.TestPGRepo", "--backup-dir", backup_dir, "--quiet"]
+      args = ["-r", "EctoBackup.TestRepo", "--backup-dir", backup_dir, "--quiet"]
       Mix.Tasks.EctoBackup.Backup.run(args)
 
       refute_received {:ecto_backup_shell, :info, _msg}

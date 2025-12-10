@@ -73,21 +73,20 @@ defmodule EctoBackup.Adapters.Postgres do
       cmd_opts = [
         env: env,
         lines: 1024,
-        on_output: on_backup_output_fun(repo, table_count),
-        into: nil
+        on_output: on_backup_output_fun(repo, table_count)
       ]
 
       try do
         case CLI.cmd({cmd, args}, cmd_opts) do
-          {nil, 0} ->
+          {_, 0} ->
             {:ok, backup_file}
 
-          {nil, exit_status} ->
+          {output, exit_status} ->
             {:error,
              Error.exception(
                reason: :pg_dump_failed,
                message: "pg_dump failed with exit status #{exit_status}",
-               term: exit_status,
+               term: {output, exit_status},
                repo: repo
              )}
         end
@@ -109,21 +108,20 @@ defmodule EctoBackup.Adapters.Postgres do
       cmd_opts = [
         env: env,
         lines: 1024,
-        on_output: on_restore_output_fun(repo, length(tables)),
-        into: nil
+        on_output: on_restore_output_fun(repo, length(tables))
       ]
 
       try do
         case CLI.cmd({cmd, args}, cmd_opts) do
-          {nil, 0} ->
+          {_, 0} ->
             :ok
 
-          {nil, exit_status} ->
+          {output, exit_status} ->
             {:error,
              Error.exception(
                reason: :pg_restore_failed,
                message: "pg_restore failed with exit status #{exit_status}",
-               term: exit_status,
+               term: {output, exit_status},
                repo: repo
              )}
         end
@@ -273,15 +271,8 @@ defmodule EctoBackup.Adapters.Postgres do
     end
 
     case Ecto.Migrator.with_repo(repo, fun) do
-      {:ok, ret, []} ->
-        {:ok, ret}
-
-      {:ok, ret, apps} ->
-        IO.puts("Table count apps started: #{inspect(apps)}")
-        {:ok, ret}
-
-      {:error, _} ->
-        {:ok, nil}
+      {:ok, ret, _} -> {:ok, ret}
+      {:error, _} -> {:ok, nil}
     end
   end
 
