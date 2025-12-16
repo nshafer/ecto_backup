@@ -8,7 +8,7 @@ defmodule EctoBackup.MixProject do
     [
       app: :ecto_backup,
       version: @version,
-      elixir: "~> 1.18",
+      elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -71,7 +71,7 @@ defmodule EctoBackup.MixProject do
       source_ref: "v#{@version}",
       canonical: "http://hexdocs.pm/ecto_backup",
       source_url: @source_url,
-      extras: ["README.md", "CHANGELOG.md"],
+      extras: ["README.md", "CHANGELOG.md", "LICENSE.md"],
       main: "readme",
       skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       groups_for_modules: [

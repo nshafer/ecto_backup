@@ -89,4 +89,4 @@ Contributions are welcome! Please open issues and submit pull requests on the
 
 ## License
 
-EctoBackup is released under the MIT License. See the [LICENSE](LICENSE) file for details.
+EctoBackup is released under the MIT License. See the [LICENSE.md](LICENSE.md) file for details.
