@@ -2,6 +2,7 @@ defmodule EctoBackup.CLI.Telemetry do
   @moduledoc false
 
   alias EctoBackup.CLI
+  alias EctoBackup.Util
 
   def attach(opts) do
     result =
@@ -64,7 +65,7 @@ defmodule EctoBackup.CLI.Telemetry do
     CLI.reset_progress()
 
     if num_repos > 1 do
-      CLI.info("All backups completed in #{CLI.duration(duration)}\n")
+      CLI.info("All backups completed in #{Util.duration(duration)}\n")
     end
   end
 
@@ -74,7 +75,7 @@ defmodule EctoBackup.CLI.Telemetry do
 
     message =
       [
-        "Starting backup at #{CLI.timestamp()}\n",
+        "Starting backup at #{Util.timestamp()}\n",
         repo_config_summary(repo_config, padding),
         [String.pad_trailing("  Backup File:", padding), "\"#{backup_file}\""]
       ]
@@ -86,7 +87,7 @@ defmodule EctoBackup.CLI.Telemetry do
     %{duration: duration} = measurements
     %{repo: repo} = metadata
     CLI.reset_progress()
-    CLI.info(repo, ["Backup completed in ", CLI.duration(duration), "\n"])
+    CLI.info(repo, ["Backup completed in ", Util.duration(duration), "\n"])
   end
 
   def handle_event([:ecto_backup, :backup, :repo, :progress], measurements, metadata, _) do
@@ -125,7 +126,7 @@ defmodule EctoBackup.CLI.Telemetry do
 
     message =
       [
-        "Starting restore at #{CLI.timestamp()}\n",
+        "Starting restore at #{Util.timestamp()}\n",
         repo_config_summary(repo_config, padding),
         [String.pad_trailing("  Restore File:", padding), "\"#{restore_file}\""]
       ]
@@ -137,7 +138,7 @@ defmodule EctoBackup.CLI.Telemetry do
     %{duration: duration} = measurements
     %{repo: repo} = metadata
     CLI.reset_progress()
-    CLI.info(repo, ["Restore completed in ", CLI.duration(duration), "\n"])
+    CLI.info(repo, ["Restore completed in ", Util.duration(duration), "\n"])
   end
 
   def handle_event([:ecto_backup, :restore, :repo, :progress], measurements, metadata, _) do

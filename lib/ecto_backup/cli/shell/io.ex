@@ -129,7 +129,7 @@ defmodule EctoBackup.CLI.Shell.IO do
       end
     end
 
-    EctoBackup.CLI.cmd(command, Keyword.put(opts, :on_output, {true, on_output}))
+    EctoBackup.Util.cmd(command, Keyword.put(opts, :on_output, {true, on_output}))
   end
 
   defp write_status(nil, true) do

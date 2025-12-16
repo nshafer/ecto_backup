@@ -57,9 +57,9 @@ defmodule EctoBackup.Adapters.Postgres do
   @behaviour EctoBackup.Adapter
 
   import Ecto.Query, only: [from: 2]
-  alias EctoBackup.CLI
   alias EctoBackup.Conf
   alias EctoBackup.Error
+  alias EctoBackup.Util
 
   @impl true
   def backup(repo, repo_config, backup_file, options) do
@@ -77,7 +77,7 @@ defmodule EctoBackup.Adapters.Postgres do
       ]
 
       try do
-        case CLI.cmd({cmd, args}, cmd_opts) do
+        case Util.cmd({cmd, args}, cmd_opts) do
           {_, 0} ->
             {:ok, backup_file}
 
@@ -112,7 +112,7 @@ defmodule EctoBackup.Adapters.Postgres do
       ]
 
       try do
-        case CLI.cmd({cmd, args}, cmd_opts) do
+        case Util.cmd({cmd, args}, cmd_opts) do
           {_, 0} ->
             :ok
 
@@ -392,7 +392,7 @@ defmodule EctoBackup.Adapters.Postgres do
   def list_backup_file_tables(backup_file, opts \\ []) do
     cmd = Keyword.get(opts, :pg_restore_cmd, "pg_restore")
 
-    case CLI.cmd({cmd, ["--list", backup_file]}) do
+    case Util.cmd({cmd, ["--list", backup_file]}) do
       {output, 0} ->
         tables =
           output

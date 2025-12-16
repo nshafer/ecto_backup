@@ -1,104 +1,122 @@
-defmodule EctoBackup.ConfErrorTest do
+defmodule ConfErrorTest do
   use ExUnit.Case, async: true
+  alias EctoBackup.ConfError
+  alias EctoBackup.TestRepo
 
   describe "message/1" do
     test "returns explicit message if present" do
-      err = %EctoBackup.ConfError{message: "boom", reason: :ignored}
+      err = %ConfError{message: "boom", reason: :ignored}
       assert Exception.message(err) == "boom"
     end
 
     test "invalid_repo_list formats value" do
-      err = %EctoBackup.ConfError{reason: :invalid_repo_list, value: 123}
+      err = %ConfError{reason: :invalid_repo_list, value: 123}
       assert Exception.message(err) =~ "invalid :repos configuration"
       assert Exception.message(err) =~ "123"
       assert err.value == 123
     end
 
     test "no_default_repos contains helpful guidance" do
-      err = %EctoBackup.ConfError{reason: :no_default_repos}
+      err = %ConfError{reason: :no_default_repos}
       msg = Exception.message(err)
       assert msg =~ "no default repositories found"
       assert msg =~ "config :ecto_backup, repos: [MyApp.Repo]"
     end
 
     test "invalid_repo_spec formats value" do
-      err = %EctoBackup.ConfError{reason: :invalid_repo_spec, value: 123}
+      err = %ConfError{reason: :invalid_repo_spec, value: 123}
       assert Exception.message(err) =~ "invalid repo specification"
       assert Exception.message(err) =~ "got: 123"
       assert err.value == 123
     end
 
     test "invalid_repo_config formats repo and config" do
-      err = %EctoBackup.ConfError{
-        reason: :invalid_repo_config,
-        repo: MyApp.Repo,
-        value: [bad: :config]
-      }
-
+      err = %ConfError{reason: :invalid_repo_config, repo: TestRepo, value: [bad: :config]}
       assert Exception.message(err) =~ "invalid repo config"
       assert Exception.message(err) =~ "got: [bad: :config]"
-      assert err.repo == MyApp.Repo
+      assert err.repo == TestRepo
       assert err.value == [bad: :config]
     end
 
     test "invalid_repo formats repo" do
-      err = %EctoBackup.ConfError{reason: :invalid_repo, repo: NotARepo}
+      err = %ConfError{reason: :invalid_repo, repo: NotARepo}
       assert Exception.message(err) == "NotARepo is not a valid Ecto.Repo module"
     end
 
     test "invalid_backup_file formats invalid value" do
-      err = %EctoBackup.ConfError{reason: :invalid_backup_file, value: :not_a_string}
+      err = %ConfError{reason: :invalid_backup_file, value: :not_a_string}
       assert Exception.message(err) =~ "invalid backup file path"
       assert Exception.message(err) =~ "got :not_a_string"
     end
 
     test "invalid_backup_dir formats invalid value" do
-      err = %EctoBackup.ConfError{reason: :invalid_backup_dir, value: %{}}
+      err = %ConfError{reason: :invalid_backup_dir, value: %{}}
       assert Exception.message(err) =~ "invalid backup directory"
       assert Exception.message(err) =~ "got %{}"
     end
 
     test "no_backup_dir_set contains guidance" do
-      err = %EctoBackup.ConfError{reason: :no_backup_dir_set}
+      err = %ConfError{reason: :no_backup_dir_set}
       msg = Exception.message(err)
       assert msg =~ "no backup directory is set"
       assert msg =~ "config :ecto_backup, backup_dir:"
     end
 
     test "no_repos_to_backup contains guidance" do
-      err = %EctoBackup.ConfError{reason: :no_repos_to_backup, value: []}
+      err = %ConfError{reason: :no_repos_to_backup, value: []}
       msg = Exception.message(err)
       assert msg =~ "no repositories to back up"
       assert msg =~ "config :ecto_backup, repos:"
     end
 
     test "no_repos_to_restore contains guidance" do
-      err = %EctoBackup.ConfError{reason: :no_repos_to_restore, value: []}
+      err = %ConfError{reason: :no_repos_to_restore, value: []}
       msg = Exception.message(err)
       assert msg =~ "no repositories to restore"
       assert msg =~ "config :ecto_backup, repos:"
     end
 
     test "multiple_repos_to_restore contains guidance" do
-      err = %EctoBackup.ConfError{reason: :multiple_repos_to_restore, value: [:repo1, :repo2]}
+      err = %ConfError{reason: :multiple_repos_to_restore, value: [:repo1, :repo2]}
       msg = Exception.message(err)
       assert msg =~ "multiple repositories provided for restore"
       assert msg =~ "config :ecto_backup, repos: [MyApp.Repo]"
+    end
+
+    test "invalid_backup_schedule formats value" do
+      err = %ConfError{reason: :invalid_backup_schedule, repo: TestRepo, value: 42}
+      assert Exception.message(err) =~ "invalid :backup_schedule format for repo"
+      assert Exception.message(err) =~ "42"
+      assert err.value == 42
+    end
+
+    test "invalid_backup_stagger formats value" do
+      err = %ConfError{reason: :invalid_backup_stagger, repo: TestRepo, value: -5}
+      assert Exception.message(err) =~ "invalid :backup_stagger value for repo"
+      assert Exception.message(err) =~ "-5"
+      assert err.value == -5
+    end
+
+    test "invalid_backup_node formats value" do
+      err = %ConfError{reason: :invalid_backup_node, repo: TestRepo, value: "not_a_list"}
+      assert Exception.message(err) =~ "invalid :backup_node value for repo"
+      assert Exception.message(err) =~ "\"not_a_list\""
+      assert err.value == "not_a_list"
     end
   end
 
   describe "raise" do
     test "explicit message wins when raising" do
-      assert_raise EctoBackup.ConfError, "boom", fn ->
-        raise EctoBackup.ConfError, message: "boom", reason: :invalid_repo
+      assert_raise ConfError, "boom", fn ->
+        raise ConfError, message: "boom", reason: :invalid_repo
       end
     end
 
     test "raising invalid_repo_spec yields expected single-line message" do
-      assert_raise EctoBackup.ConfError,
+      assert_raise ConfError,
                    "invalid repo specification, expected atom or {module, keyword}, got: :bad",
                    fn ->
-                     raise EctoBackup.ConfError, reason: :invalid_repo_spec, value: :bad
+                     raise ConfError, reason: :invalid_repo_spec, value: :bad
                    end
     end
   end

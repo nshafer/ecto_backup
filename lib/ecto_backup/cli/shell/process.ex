@@ -115,7 +115,7 @@ defmodule EctoBackup.CLI.Shell.Process do
       send(self(), {:ecto_backup_shell, :cmd, data})
     end
 
-    EctoBackup.CLI.cmd(command, Keyword.put(opts, :on_output, on_output))
+    EctoBackup.Util.cmd(command, Keyword.put(opts, :on_output, on_output))
   end
 
   defp format(message) do

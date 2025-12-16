@@ -44,6 +44,6 @@ defmodule EctoBackup.CLI.Shell.Quiet do
   """
   @impl true
   def cmd(command, opts \\ []) do
-    EctoBackup.CLI.cmd(command, opts)
+    EctoBackup.Util.cmd(command, opts)
   end
 end
