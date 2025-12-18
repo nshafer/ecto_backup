@@ -5,12 +5,12 @@ Simple backup (and restore) for small to medium projects.
 EctoBackup provides Mix tasks and release functions to backup and restore Ecto repositories in dev
 and production, manually and on a schedule.
 
-## Supported Databases
+### Supported Databases
 
 - PostgreSQL (via `pg_dump` and `pg_restore`)
 - (More databases coming soon!)
 
-## Features
+### Features
 
 - Easy to use Mix tasks for backup and restore.
 - Release functions for performing backup and restore in production releases.
@@ -19,7 +19,7 @@ and production, manually and on a schedule.
 - Configuration options for customizing backup and restore behavior globally or per-repo.
 - Progress reporting and logging during backup and restore operations.
 
-> ### **WARNING** {: .warning}
+> #### Warning {: .warning}
 >
 > This library provides simple backup and restore functionality for Ecto repositories, it may
 > not be a complete backup solution for all use cases. It is recommended to evaluate your
