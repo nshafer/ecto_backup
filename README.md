@@ -31,6 +31,10 @@ def deps do
 end
 ```
 
+Then, run `mix deps.get` to fetch the new dependency.
+
+### Example Configuration
+
 Configure the list of repositories to backup by default, and where to store the backups.
 
 ```elixir
@@ -42,7 +46,23 @@ config :ecto_backup,
 See the [documentation](https://hexdocs.pm/ecto_backup/EctoBackup.html) for more information on
 configuration and usage.
 
-**Optional:** Create aliases for the Mix tasks in your `mix.exs` file:
+### (Optional) Enabled Scheduled Backups
+
+To enable scheduled backups, add the `EctoBackup.Scheduler` to your supervision tree:
+
+```elixir
+children = [
+  # Other children...
+  EctoBackup.Scheduler
+]
+```
+
+See [EctoBackup.Scheduler](https://hexdocs.pm/ecto_backup/EctoBackup.Scheduler.html) for more
+information on scheduling options.
+
+### (Optional) Mix Aliases
+
+Create aliases for the Mix tasks in your `mix.exs` file:
 
 ```elixir
 defp aliases do
@@ -53,7 +73,9 @@ defp aliases do
 end
 ```
 
-**Optional:** Create release shell scripts to run the backup and restore tasks in your release
+### (Optional) Release Scripts
+
+Create release shell scripts to run the backup and restore tasks in your release
 environment. See [EctoBackup.Release](https://hexdocs.pm/ecto_backup/EctoBackup.Release.html) for
 more information.
 

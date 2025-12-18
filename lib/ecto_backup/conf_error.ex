@@ -138,4 +138,49 @@ defmodule EctoBackup.ConfError do
         ./restore --repo MyApp.Repo path/to/backup/file
     """
   end
+
+  def message(%{reason: :invalid_backup_schedule, repo: repo, value: value}) do
+    """
+    invalid :backup_schedule format for repo #{inspect(repo)},
+    please provide a valid cron expression string or Crontab.CronExpression struct for
+    scheduling backups
+
+    Got value:
+
+        #{inspect(value)}
+
+    Examples:
+
+        # Valid cron expression strings
+        "0 2 * * *"        # every day at 2am
+        "0 */6 * * *"      # every 6 hours
+        "30 1 * * 1-5"     # at 1:30am on weekdays
+
+        # Using Crontab.CronExpression struct
+        %Crontab.CronExpression{expression: "0 2 * * *"}
+
+        # Using Crontab.CronExpression ~e[] sigil
+        import Crontab.CronExpression
+        ~e[0 2 * * *]
+    """
+  end
+
+  def message(%{reason: :invalid_backup_stagger, repo: repo, value: value}) do
+    """
+    invalid :backup_stagger value for repo #{inspect(repo)}, expected a non-negative integer
+
+    Got value:
+
+        #{inspect(value)}
+    """
+  end
+
+  def message(%{reason: :invalid_backup_node, repo: repo, value: value}) do
+    """
+    invalid :backup_node value for repo #{inspect(repo)}, expected an atom, nil, or a list of atoms
+
+    Got value:
+        #{inspect(value)}
+    """
+  end
 end
