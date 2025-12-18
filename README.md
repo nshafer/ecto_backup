@@ -19,6 +19,15 @@ and production, manually and on a schedule.
 - Configuration options for customizing backup and restore behavior globally or per-repo.
 - Progress reporting and logging during backup and restore operations.
 
+> ### **WARNING** {: .warning}
+>
+> This library provides simple backup and restore functionality for Ecto repositories, it may
+> not be a complete backup solution for all use cases. It is recommended to evaluate your
+> specific backup and restore requirements and ensure that this library meets those needs before
+> relying on it for critical data protection. Always test your backups and restores to ensure
+> they work as expected. Always keep your backups secure and follow best practices for data
+> protection.
+
 ## Installation
 
 The package can be installed by adding `ecto_backup` to your list of dependencies in `mix.exs`:
@@ -43,7 +52,7 @@ config :ecto_backup,
   backup_path: "/path/to/backups"
 ```
 
-See the [documentation](https://hexdocs.pm/ecto_backup/EctoBackup.html) for more information on
+See [EctoBackup](https://hexdocs.pm/ecto_backup/EctoBackup.html) for more information on
 configuration and usage.
 
 ### (Optional) Enabled Scheduled Backups
@@ -51,10 +60,19 @@ configuration and usage.
 To enable scheduled backups, add the `EctoBackup.Scheduler` to your supervision tree:
 
 ```elixir
+# application.ex
 children = [
   # Other children...
   EctoBackup.Scheduler
 ]
+
+# config.exs
+config :ecto_backup,
+  repos: [MyApp.Repo],
+  backup_path: "/path/to/backups",
+  backup_schedule: "0 2 * * *",  # Every day at 2 AM (cron format)
+  backup_stagger_sec: 600,       # Random delay up to 600 seconds
+  backup_node: :my_app@my_host   # Node to perform the backup on
 ```
 
 See [EctoBackup.Scheduler](https://hexdocs.pm/ecto_backup/EctoBackup.Scheduler.html) for more

@@ -16,11 +16,11 @@ defmodule EctoBackup do
 
   > #### Warning {: .warning}
   >
-  > This library provides simple backup and restore functionality for Ecto repositories, but it is
-  > not intended to be a complete backup solution for all use cases. It is recommended to evaluate
-  > your specific backup and restore requirements and ensure that this library meets those needs
-  > before relying on it for critical data protection. Always test your backups and restores to
-  > ensure they work as expected. Always keep your backups secure and follow best practices for data
+  > This library provides simple backup and restore functionality for Ecto repositories, it may
+  > not be a complete backup solution for all use cases. It is recommended to evaluate your
+  > specific backup and restore requirements and ensure that this library meets those needs before
+  > relying on it for critical data protection. Always test your backups and restores to ensure
+  > they work as expected. Always keep your backups secure and follow best practices for data
   > protection.
 
   ## Individual Repo Configuration
