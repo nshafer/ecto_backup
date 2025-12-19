@@ -175,7 +175,6 @@ defmodule EctoBackup do
   the recommend `[:ecto_backup, :backup, :repo, :message]` and `[:ecto_backup, :backup, :repo,
   :progress]` events in `EctoBackup.Adapter`.
   """
-
   @spec backup(keyword() | map()) :: {:ok, [backup_result()]} | {:error, term()}
   def backup(opts \\ %{}) do
     options = Map.new(opts)
@@ -210,6 +209,42 @@ defmodule EctoBackup do
 
       {result, Map.put(metadata, :result, result)}
     end)
+  end
+
+  @doc """
+  Same as `backup/1`, but raises an `EctoBackup.Error` if the overall backup operation fails or
+  if any individual repo backup fails.
+
+  If any repo backup fails, an error will not be raised immediately, and all backups will still be
+  attempted, then after all backups are complete, if any failed, an error will be raised.
+
+  Returns a list of results for each repo backup in the form `{repo, backup_file}` if all backups
+  succeeded.
+  """
+  @spec backup!(keyword() | map()) :: [backup_result()]
+  def backup!(opts \\ %{}) do
+    case backup(opts) do
+      {:ok, results} ->
+        errors =
+          Enum.filter(results, fn
+            {:error, _repo, _reason} -> true
+            _ -> false
+          end)
+
+        if errors != [] do
+          error_detail =
+            for {:error, repo, error} <- errors, into: "" do
+              "#{inspect(repo)}: #{Exception.message(error)}\n"
+            end
+
+          raise EctoBackup.Error, "One or more repository backups failed:\n" <> error_detail
+        else
+          results
+        end
+
+      {:error, reason} ->
+        raise EctoBackup.Error, "Backup failed: #{inspect(reason)}"
+    end
   end
 
   @doc """
@@ -274,6 +309,8 @@ defmodule EctoBackup do
 
   Additional telemetry events may be emitted by specific adapters during their operations.
   """
+  @spec restore(String.t(), keyword() | map()) ::
+          {:ok, module()} | {:error, term()} | {:error, module(), term()}
   def restore(restore_file, opts \\ %{}) do
     options = Map.new(opts)
 
@@ -310,5 +347,25 @@ defmodule EctoBackup do
 
       {result, Map.put(metadata, :result, result)}
     end)
+  end
+
+  @doc """
+  Same as `restore/2`, but raises an `EctoBackup.Error` if the restore operation fails.
+
+  Returns the restored Repo on success, or raises an error on failure.
+  """
+  @spec restore!(String.t(), keyword() | map()) :: {:ok, module()} | {:error, module(), term()}
+  def restore!(restore_file, opts \\ %{}) do
+    case restore(restore_file, opts) do
+      {:ok, repo} ->
+        repo
+
+      {:error, reason} ->
+        raise EctoBackup.Error, "Restore failed: #{inspect(reason)}"
+
+      {:error, repo, reason} ->
+        raise EctoBackup.Error,
+              "Restore for #{inspect(repo)} failed: #{Exception.message(reason)}"
+    end
   end
 end

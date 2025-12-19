@@ -2,12 +2,12 @@
 
 - [x] backup/1
 - [x] restore/1
-- [ ] backup!/1
-- [ ] restore!/1
+- [x] backup!/1
+- [x] restore!/1
 - [x] mix tasks
 - [x] release tasks
 - [x] release script generator
-- [ ] scheduler
+- [x] scheduler
 - [ ] post-backup handlers
 - [ ] pre-restore handlers
 - [ ] CI tests

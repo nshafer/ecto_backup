@@ -167,6 +167,48 @@ defmodule EctoBackupTest do
     end
   end
 
+  describe "backup!/1" do
+    setup do
+      backup_dir = StubAdapter.create_backup_dir!()
+      {:ok, backup_dir: backup_dir}
+    end
+
+    test "can backup using the StubAdapter", %{backup_dir: backup_dir} do
+      opts = %{repos: [{TestRepo, [adapter: StubAdapter]}], backup_dir: backup_dir}
+      [{:ok, TestRepo, backup_file}] = EctoBackup.backup!(opts)
+      assert File.exists?(backup_file)
+    end
+
+    test "can backup using default repo config", %{backup_dir: backup_dir} do
+      Application.put_env(:ecto_backup, :repos, [{TestRepo, [adapter: StubAdapter]}])
+      Application.put_env(:ecto_backup, :backup_dir, backup_dir)
+
+      assert [{:ok, TestRepo, backup_file}] = EctoBackup.backup!()
+      assert File.exists?(backup_file)
+
+      Application.delete_env(:ecto_backup, :repos)
+      Application.delete_env(:ecto_backup, :backup_dir)
+    end
+
+    test "raises for backup errors", %{backup_dir: backup_dir} do
+      opts = %{repos: [{TestRepo, [adapter: StubAdapter]}]}
+
+      assert_raise EctoBackup.Error, fn ->
+        EctoBackup.backup!(opts)
+      end
+
+      opts = %{
+        repos: [{TestRepo, [adapter: StubAdapter]}],
+        backup_file: "invalid_backup_file.db",
+        backup_dir: backup_dir
+      }
+
+      assert_raise EctoBackup.Error, fn ->
+        EctoBackup.backup!(opts)
+      end
+    end
+  end
+
   describe "restore/2" do
     setup do
       # Create a stub backup file
@@ -257,6 +299,55 @@ defmodule EctoBackupTest do
       opts = %{repo: {TestRepo, [adapter: StubAdapter]}, confirm: true}
       assert {:error, TestRepo, e} = EctoBackup.restore(invalid, opts)
       assert e.reason == :invalid_backup_data
+    end
+  end
+
+  describe "restore!/2" do
+    setup do
+      # Create a stub backup file
+      backup_dir = StubAdapter.create_backup_dir!()
+      opts = %{repos: [{TestRepo, [adapter: StubAdapter]}], backup_dir: backup_dir}
+      {:ok, [{:ok, TestRepo, backup_file}]} = EctoBackup.backup(opts)
+
+      invalid_file = Path.join(backup_dir, "invalid_restore_file.db")
+      :ok = File.write(invalid_file, "invalid data")
+
+      {:ok, backup_dir: backup_dir, backup_file: backup_file, invalid_file: invalid_file}
+    end
+
+    test "can restore using the StubAdapter", %{backup_file: backup_file} do
+      repo_spec = {TestRepo, [adapter: StubAdapter]}
+      assert TestRepo = EctoBackup.restore!(backup_file, repo: repo_spec, confirm: true)
+    end
+
+    test "can restore from default repo config", %{backup_file: backup_file} do
+      Application.put_env(:ecto_backup, :repos, [{TestRepo, [adapter: StubAdapter]}])
+      assert TestRepo = EctoBackup.restore!(backup_file, confirm: true)
+      Application.delete_env(:ecto_backup, :repos)
+    end
+
+    test "raises for restore errors", %{backup_file: backup_file, invalid_file: invalid_file} do
+      repo_spec = {TestRepo, [adapter: StubAdapter]}
+
+      assert_raise EctoBackup.Error, fn ->
+        EctoBackup.restore!(backup_file, repo: repo_spec)
+      end
+
+      Application.put_env(:ecto_backup, :repos, [{TestRepo, [adapter: StubAdapter]}])
+
+      assert_raise EctoBackup.Error, fn ->
+        EctoBackup.restore!(backup_file)
+      end
+
+      Application.delete_env(:ecto_backup, :repos)
+
+      assert_raise EctoBackup.Error, fn ->
+        EctoBackup.restore!("non_existent_file.db", repo: repo_spec, confirm: true)
+      end
+
+      assert_raise EctoBackup.Error, fn ->
+        EctoBackup.restore!(invalid_file, repo: repo_spec, confirm: true)
+      end
     end
   end
 end
