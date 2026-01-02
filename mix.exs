@@ -54,7 +54,10 @@ defmodule EctoBackup.MixProject do
       {:ex_doc, "~> 0.34", only: :dev, runtime: false, warn_if_outdated: true},
       {:earmark, ">= 0.0.0", only: :dev, runtime: false},
       {:mix_test_interactive, "~> 5.0", only: :dev, runtime: false},
-      {:patch, "~> 0.16.0", only: [:test]}
+      {:patch, "~> 0.16.0", only: [:test]},
+      # Highlander is only included so ex_doc doesn't generate warnings
+      {:highlander, ">= 0.0.0", only: :dev},
+      {:highlander_pg, ">= 0.0.0", only: :dev}
     ]
   end
 

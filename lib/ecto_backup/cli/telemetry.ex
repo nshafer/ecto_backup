@@ -70,14 +70,14 @@ defmodule EctoBackup.CLI.Telemetry do
   end
 
   def handle_event([:ecto_backup, :backup, :repo, :start], _, metadata, _) do
-    %{repo: repo, repo_config: repo_config, backup_file: backup_file} = metadata
+    %{repo: repo, repo_config: repo_config} = metadata
     padding = 15
 
     message =
       [
         "Starting backup at #{Util.timestamp()}\n",
-        repo_config_summary(repo_config, padding),
-        [String.pad_trailing("  Backup File:", padding), "\"#{backup_file}\""]
+        CLI.repo_config_summary(repo_config, padding),
+        [String.pad_trailing("  Backup File:", padding), "\"#{repo_config[:backup_file]}\""]
       ]
 
     CLI.info(repo, message)
@@ -121,14 +121,14 @@ defmodule EctoBackup.CLI.Telemetry do
   end
 
   def handle_event([:ecto_backup, :restore, :repo, :start], _, metadata, _) do
-    %{repo: repo, repo_config: repo_config, restore_file: restore_file} = metadata
+    %{repo: repo, repo_config: repo_config} = metadata
     padding = 15
 
     message =
       [
         "Starting restore at #{Util.timestamp()}\n",
-        repo_config_summary(repo_config, padding),
-        [String.pad_trailing("  Restore File:", padding), "\"#{restore_file}\""]
+        CLI.repo_config_summary(repo_config, padding),
+        [String.pad_trailing("  Restore File:", padding), "\"#{repo_config[:restore_file]}\""]
       ]
 
     CLI.info(repo, message)
@@ -159,25 +159,5 @@ defmodule EctoBackup.CLI.Telemetry do
       level == :error -> CLI.error(repo, ["Error: ", message])
       true -> :ok
     end
-  end
-
-  defp repo_config_summary(repo_config, padding) do
-    labels = [
-      database: "Database",
-      username: "Username",
-      hostname: "Hostname",
-      port: "Port",
-      socket: "Socket",
-      socket_dir: "Socket Dir"
-    ]
-
-    labels
-    |> Enum.map(fn {key, label} ->
-      case repo_config[key] do
-        nil -> nil
-        value -> [String.pad_trailing("  #{label}:", padding), "\"#{value}\"\n"]
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
   end
 end

@@ -95,11 +95,6 @@ defmodule EctoBackup.Scheduler do
 
   """
 
-  # TODO:
-  # [x] - Get current schedules
-  # [ ] - Tests
-  # [ ] - Documentation
-
   use Supervisor
   require Logger
   alias Crontab.CronExpression
@@ -111,8 +106,8 @@ defmodule EctoBackup.Scheduler do
     options = Map.new(opts)
 
     with(
-      {:ok, repo_specs} <- Util.get_repo_specs(options),
-      {:ok, repo_configs} <- Util.get_repo_configs(repo_specs),
+      {:ok, repo_specs} <- Util.get_repo_specs(:backup, options),
+      {:ok, repo_configs} <- Util.get_repo_configs(:backup, repo_specs),
       {:ok, repo_schedules} <- get_repo_schedules(repo_configs, options)
     ) do
       Supervisor.start_link(__MODULE__, {repo_schedules, options}, name: __MODULE__)

@@ -67,7 +67,12 @@ defmodule EctoBackup.IOTest do
     end
 
     test "fatal with EctoBackup.ConfError exception" do
-      exception = EctoBackup.ConfError.exception("Invalid configuration")
+      exception =
+        EctoBackup.ConfError.exception(
+          reason: :invalid_configuration,
+          message: "Invalid configuration"
+        )
+
       assert catch_exit(CLI.fatal(exception)) == {:shutdown, 1}
 
       assert_received {:ecto_backup_shell, :error,
@@ -106,11 +111,35 @@ defmodule EctoBackup.IOTest do
     end
   end
 
+  describe "parse_restore_args!/1" do
+    test "parses command line arguments into options map" do
+      args = [
+        "-r",
+        "EctoBackup.TestRepo",
+        "-f",
+        "testrepo_backup.db",
+        "--repo",
+        "EctoBackup.SecondTestRepo",
+        "--file",
+        "secondtestrepo_backup.db",
+        "--restore-dir",
+        "/tmp/backups",
+        "-v"
+      ]
+
+      options = CLI.parse_restore_args!(args)
+      assert options[:repos] == [TestRepo, SecondTestRepo]
+      assert options[:files] == ["testrepo_backup.db", "secondtestrepo_backup.db"]
+      assert options[:restore_dir] == "/tmp/backups"
+      assert options[:verbose] == true
+    end
+  end
+
   describe "summarize_backup_results/1" do
     test "prints summary when all backups succeed" do
       results = [
-        {:ok, TestRepo, "/path/to/backup1.sql"},
-        {:ok, SecondTestRepo, "/path/to/backup2.sql"}
+        {:ok, TestRepo, "/path/to/backup1.db"},
+        {:ok, SecondTestRepo, "/path/to/backup2.db"}
       ]
 
       CLI.summarize_backup_results(results)
@@ -122,7 +151,7 @@ defmodule EctoBackup.IOTest do
 
     test "prints error summary when some backups fail" do
       results = [
-        {:ok, TestRepo, "/path/to/backup1.sql"},
+        {:ok, TestRepo, "/path/to/backup1.db"},
         {:error, SecondTestRepo, EctoBackup.Error.exception("Connection failed")}
       ]
 
@@ -131,32 +160,45 @@ defmodule EctoBackup.IOTest do
       assert_received {:ecto_backup_shell, :error,
                        "Some backups completed with errors:\n" <> rest}
 
-      assert rest =~ "✔ EctoBackup.TestRepo: /path/to/backup1.sql"
+      assert rest =~ "✔ EctoBackup.TestRepo: /path/to/backup1.db"
       assert rest =~ "✘ EctoBackup.SecondTestRepo: Connection failed"
     end
   end
 
-  describe "summarize_restore_result/1" do
+  describe "summarize_restore_results/1" do
     test "prints success message on successful restore" do
-      CLI.summarize_restore_result({:ok, TestRepo})
+      results = [
+        {:ok, TestRepo, "/path/to/restore1.db"},
+        {:ok, SecondTestRepo, "/path/to/restore2.db"}
+      ]
 
-      assert_received {:ecto_backup_shell, :info, "Restore summary:\n" <> rest}
-      assert rest =~ "✔ EctoBackup.TestRepo: Restored successfully"
+      CLI.summarize_restore_results(results)
+
+      assert_received {:ecto_backup_shell, :info, "Restore Summary:\n" <> rest}
+      assert rest =~ "✔ EctoBackup.TestRepo: /path/to/restore1.db"
+      assert rest =~ "✔ EctoBackup.SecondTestRepo: /path/to/restore2.db"
     end
 
     test "prints error message on failed restore" do
-      e = EctoBackup.Error.exception("Restore failed")
-      CLI.summarize_restore_result({:error, TestRepo, e})
+      results = [
+        {:ok, TestRepo, "/path/to/backup1.db"},
+        {:error, SecondTestRepo, EctoBackup.Error.exception("Connection failed")}
+      ]
 
-      assert_received {:ecto_backup_shell, :error, "Restore completed with errors:\n" <> rest}
-      assert rest =~ "✘ EctoBackup.TestRepo: Restore failed"
+      CLI.summarize_restore_results(results)
+
+      assert_received {:ecto_backup_shell, :error,
+                       "Some restores completed with errors:\n" <> rest}
+
+      assert rest =~ "✔ EctoBackup.TestRepo: /path/to/backup1.db"
+      assert rest =~ "✘ EctoBackup.SecondTestRepo: Connection failed"
     end
   end
 
   describe "exit_if_errors/2" do
     test "exits when there are errors in results" do
       results = [
-        {:ok, TestRepo, "/path/to/backup1.sql"},
+        {:ok, TestRepo, "/path/to/backup1.db"},
         {:error, SecondTestRepo, EctoBackup.Error.exception("Connection failed")}
       ]
 
@@ -166,8 +208,8 @@ defmodule EctoBackup.IOTest do
 
     test "does not exit when all backups succeed" do
       results = [
-        {:ok, TestRepo, "/path/to/backup1.sql"},
-        {:ok, SecondTestRepo, "/path/to/backup2.sql"}
+        {:ok, TestRepo, "/path/to/backup1.db"},
+        {:ok, SecondTestRepo, "/path/to/backup2.db"}
       ]
 
       assert nil == CLI.exit_if_errors(results, 99)
@@ -220,19 +262,24 @@ defmodule EctoBackup.IOTest do
     end
   end
 
-  describe "confirm_restore/0" do
+  describe "confirm_restore/2" do
     test "prompts user for confirmation before restore" do
-      send(self(), {:ecto_backup_shell_input, :prompt, "yes"})
-      assert CLI.confirm_restore() == true
-      assert_received {:ecto_backup_shell, :prompt, "Are you sure" <> _}
+      repo_config = %{database: "test_db", restore_file: "/path/to/backup.db"}
+
+      send(self(), {:ecto_backup_shell_input, :prompt, inspect(TestRepo)})
+      assert CLI.confirm_restore(TestRepo, repo_config) == true
+      assert_received {:ecto_backup_shell, :prompt, prompt}
+      assert prompt =~ "Please type the name of the repository to confirm"
 
       send(self(), {:ecto_backup_shell_input, :prompt, "no"})
-      assert CLI.confirm_restore() == false
-      assert_received {:ecto_backup_shell, :prompt, "Are you sure" <> _}
+      assert CLI.confirm_restore(TestRepo, repo_config) == false
+      assert_received {:ecto_backup_shell, :prompt, prompt}
+      assert prompt =~ "Please type the name of the repository to confirm"
 
       send(self(), {:ecto_backup_shell_input, :prompt, ""})
-      assert CLI.confirm_restore() == false
-      assert_received {:ecto_backup_shell, :prompt, "Are you sure" <> _}
+      assert CLI.confirm_restore(TestRepo, repo_config) == false
+      assert_received {:ecto_backup_shell, :prompt, prompt}
+      assert prompt =~ "Please type the name of the repository to confirm"
     end
   end
 end

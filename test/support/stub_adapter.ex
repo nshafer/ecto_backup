@@ -6,7 +6,7 @@ defmodule EctoBackup.StubAdapter do
   @data "stub backup data\n"
 
   @impl true
-  def backup(repo, _repo_config, "invalid_backup_file.db", _options) do
+  def backup(repo, %{backup_file: "invalid_backup_file.db"}, _options) do
     emit_message_event(:backup, :error, repo, "Invalid backup file")
 
     {:error,
@@ -17,7 +17,7 @@ defmodule EctoBackup.StubAdapter do
      )}
   end
 
-  def backup(repo, _repo_config, backup_file, _options) do
+  def backup(repo, %{backup_file: backup_file}, _options) do
     emit_message_event(:backup, :info, repo, "dumping stub data")
     emit_progress_event(:backup, repo, 0, 1, "stub backup progress")
 
@@ -30,7 +30,7 @@ defmodule EctoBackup.StubAdapter do
   end
 
   @impl true
-  def restore(repo, _repo_config, "invalid_restore_file.db", _options) do
+  def restore(repo, %{restore_file: "invalid_restore_file.db"}, _options) do
     emit_message_event(:restore, :error, repo, "Invalid restore file")
 
     {:error,
@@ -41,7 +41,7 @@ defmodule EctoBackup.StubAdapter do
      )}
   end
 
-  def restore(repo, _repo_config, restore_file, _options) do
+  def restore(repo, %{restore_file: restore_file}, _options) do
     emit_message_event(:restore, :info, repo, "restoring stub data")
     emit_progress_event(:restore, repo, 0, 1, "stub restore progress")
 
@@ -50,7 +50,7 @@ defmodule EctoBackup.StubAdapter do
 
       if content == @data do
         emit_message_event(:restore, :info, repo, "stub data restored successfully")
-        :ok
+        {:ok, restore_file}
       else
         emit_message_event(:restore, :error, repo, "invalid backup data")
 

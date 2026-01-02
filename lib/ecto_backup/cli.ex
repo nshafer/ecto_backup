@@ -114,34 +114,50 @@ defmodule EctoBackup.CLI do
       error([
         if(shell() == EctoBackup.CLI.Shell.Quiet, do: "\n", else: ""),
         "Some backups completed with errors:\n",
-        format_backup_results_summary(results)
+        format_results_summary(results)
       ])
     else
       info([
         "Backup Summary:\n",
-        format_backup_results_summary(results)
+        format_results_summary(results)
       ])
     end
   end
 
-  defp format_backup_results_summary(results) do
-    for result <- results do
-      format_backup_result(result)
+  # Prints a summary of restore results to the current shell.
+  def summarize_restore_results(results) do
+    if has_errors?(results) do
+      error([
+        if(shell() == EctoBackup.CLI.Shell.Quiet, do: "\n", else: ""),
+        "Some restores completed with errors:\n",
+        format_results_summary(results)
+      ])
+    else
+      info([
+        "Restore Summary:\n",
+        format_results_summary(results)
+      ])
     end
   end
 
-  defp format_backup_result({:ok, repo, backup_file}) do
+  defp format_results_summary(results) do
+    for result <- results do
+      format_result(result)
+    end
+  end
+
+  defp format_result({:ok, repo, result}) do
     [
       [:green, "✔", :default_color],
       " ",
       format_repo(repo),
       ": ",
-      backup_file,
+      result,
       "\n"
     ]
   end
 
-  defp format_backup_result({:error, repo, error}) do
+  defp format_result({:error, repo, error}) do
     [
       [:red, "✘", :default_color],
       " ",
@@ -169,38 +185,16 @@ defmodule EctoBackup.CLI do
     end)
   end
 
-  def summarize_restore_result({:ok, repo}) do
-    info([
-      "Restore summary:\n",
-      [:green, "✔", :default_color],
-      " ",
-      format_repo(repo),
-      ": Restored successfully\n"
-    ])
-  end
-
-  def summarize_restore_result({:error, repo, error}) do
-    error([
-      "Restore completed with errors:\n",
-      [:red, "✘", :default_color],
-      " ",
-      format_repo(repo),
-      ": ",
-      :red,
-      Exception.message(error),
-      "\n"
-    ])
-  end
-
   @doc """
-  Parses command line arguments into an options map.
+  Parses command line arguments for backup into an options map.
 
   This raises an error if invalid arguments are provided.
   """
   @spec parse_backup_args!([binary()]) :: map()
   def parse_backup_args!(args) do
     switches = [
-      repo: [:string, :keep],
+      repo: :keep,
+      file: :keep,
       backup_dir: :string,
       verbose: :boolean,
       quiet: :boolean
@@ -208,6 +202,7 @@ defmodule EctoBackup.CLI do
 
     aliases = [
       r: :repo,
+      f: :file,
       d: :backup_dir,
       v: :verbose,
       q: :quiet
@@ -217,40 +212,47 @@ defmodule EctoBackup.CLI do
 
     %{
       repos: Keyword.get_values(opts, :repo) |> Enum.map(&Module.concat([&1])),
+      files: Keyword.get_values(opts, :file),
       backup_dir: opts[:backup_dir],
       verbose: opts[:verbose] || false,
       quiet: opts[:quiet] || false
     }
   end
 
+  @doc """
+  Parses command line arguments for restore into an options map.
+
+  This raises an error if invalid arguments are provided.
+  """
+  @spec parse_restore_args!([binary()]) :: map()
   def parse_restore_args!(args) do
     switches = [
-      repo: :string,
+      repo: :keep,
+      file: :keep,
+      restore_dir: :string,
       verbose: :boolean,
       quiet: :boolean,
-      confirm: :boolean
+      confirm: :keep
     ]
 
     aliases = [
       r: :repo,
+      f: :file,
+      d: :restore_dir,
       v: :verbose,
       q: :quiet
     ]
 
-    {opts, args} = OptionParser.parse!(args, strict: switches, aliases: aliases)
+    {opts, _} = OptionParser.parse!(args, strict: switches, aliases: aliases)
 
-    if length(args) != 1 do
-      raise OptionParser.ParseError, "restore_file argument is required"
-    end
-
-    options = %{
-      repo: opts[:repo] && Module.concat([opts[:repo]]),
+    %{
+      repos: Keyword.get_values(opts, :repo) |> Enum.map(&Module.concat([&1])),
+      files: Keyword.get_values(opts, :file),
+      restore_dir: opts[:restore_dir],
       verbose: opts[:verbose] || false,
       quiet: opts[:quiet] || false,
-      confirm: opts[:confirm]
+      confirm: Keyword.get_values(opts, :confirm) |> Enum.map(&Module.concat([&1]))
     }
-
-    {options, List.first(args)}
   end
 
   @doc """
@@ -259,13 +261,16 @@ defmodule EctoBackup.CLI do
   def backup_opts_from_cli_opts(cli_opts) do
     %{}
     |> maybe_put_option(:repos, Map.get(cli_opts, :repos), [])
+    |> maybe_put_option(:files, Map.get(cli_opts, :files), [])
     |> maybe_put_option(:backup_dir, Map.get(cli_opts, :backup_dir), nil)
   end
 
   def restore_opts_from_cli_opts(cli_opts) do
     %{}
-    |> maybe_put_option(:repo, Map.get(cli_opts, :repo), nil)
-    |> maybe_put_option(:confirm, Map.get(cli_opts, :confirm), nil)
+    |> maybe_put_option(:repos, Map.get(cli_opts, :repos), [])
+    |> maybe_put_option(:files, Map.get(cli_opts, :files), [])
+    |> maybe_put_option(:restore_dir, Map.get(cli_opts, :restore_dir), nil)
+    |> maybe_put_option(:confirm, Map.get(cli_opts, :confirm), [])
   end
 
   # Puts the given key and value into the opts map unless the value is equal to not_value.
@@ -318,17 +323,48 @@ defmodule EctoBackup.CLI do
     end
   end
 
-  def confirm_restore() do
-    response =
-      "Are you sure you want to restore the database? This will overwrite existing data. (yes/NO)"
-      |> shell().prompt()
-      |> String.trim()
-      |> String.downcase()
+  def confirm_restore(repo, repo_config) do
+    prompt = [
+      [:red, "DANGER! ", :default_color],
+      "You are about to restore a backup for ",
+      format_repo(repo),
+      " from file:\n\n",
+      [:yellow, "  #{repo_config[:restore_file]}\n\n", :default_color],
+      "This operation will ",
+      [:bright, "overwrite existing data ", :normal],
+      "in the following database:\n\n",
+      repo_config_summary(repo_config, 15),
+      "\n",
+      "Please type the name of the repository to confirm:"
+    ]
 
-    case response do
-      "yes" -> true
-      "no" -> false
-      _ -> false
-    end
+    response =
+      shell().prompt(prompt)
+      |> String.trim()
+
+    Module.concat([response]) == repo
+  end
+
+  @doc """
+  Returns a summary of the repository configuration for display.
+  """
+  def repo_config_summary(repo_config, padding) do
+    labels = [
+      database: "Database",
+      username: "Username",
+      hostname: "Hostname",
+      port: "Port",
+      socket: "Socket",
+      socket_dir: "Socket Dir"
+    ]
+
+    labels
+    |> Enum.map(fn {key, label} ->
+      case repo_config[key] do
+        nil -> nil
+        value -> [String.pad_trailing("  #{label}:", padding), "\"#{value}\"\n"]
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
   end
 end

@@ -4,13 +4,16 @@ defmodule EctoBackupTest do
   alias EctoBackup.SecondTestRepo
   alias EctoBackup.StubAdapter
 
+  # TODO: Finish 100% coverage with this test module only
+
   defmodule InvalidRepoConfig do
     def config(), do: :invalid_config
   end
 
   def custom_backup_file(_repo, _repo_config, backup_file), do: backup_file
+  def custom_restore_file(_repo, _repo_config, restore_file), do: restore_file
 
-  def confirm_restore(val), do: val
+  def confirm_restore(_, _, val), do: val
 
   describe "backup/1" do
     setup do
@@ -22,29 +25,43 @@ defmodule EctoBackupTest do
       opts = %{repos: [{TestRepo, [adapter: StubAdapter]}], backup_dir: backup_dir}
       assert {:ok, [{:ok, TestRepo, backup_file}]} = EctoBackup.backup(opts)
       assert File.exists?(backup_file)
+
+      opts = %{
+        repos: [{TestRepo, [adapter: StubAdapter]}, {SecondTestRepo, [adapter: StubAdapter]}],
+        backup_dir: backup_dir
+      }
+
+      assert {:ok, [{:ok, TestRepo, backup_file}, {:ok, SecondTestRepo, backup_file2}]} =
+               EctoBackup.backup(opts)
+
+      assert File.exists?(backup_file)
+      assert File.exists?(backup_file2)
     end
 
     test "can backup with custom backup_file", %{backup_dir: backup_dir} do
-      opts = %{repos: [{TestRepo, [adapter: StubAdapter]}]}
+      opts_base = %{repos: [{TestRepo, [adapter: StubAdapter]}]}
 
       custom_backup_file = Path.join(backup_dir, "custom_backup.db")
-      opts = Map.put(opts, :backup_file, custom_backup_file)
-      assert {:ok, [{:ok, TestRepo, backup_file}]} = EctoBackup.backup(opts)
-      assert backup_file == custom_backup_file
-      assert File.exists?(backup_file)
+      opts = Map.put(opts_base, :files, [custom_backup_file])
+      assert {:ok, [{:ok, TestRepo, ^custom_backup_file}]} = EctoBackup.backup(opts)
+      assert File.exists?(custom_backup_file)
+
+      custom_backup_file = Path.join(backup_dir, "custom_backup.db")
+      opts = Map.put(opts_base, :backup_file, custom_backup_file)
+      assert {:ok, [{:ok, TestRepo, ^custom_backup_file}]} = EctoBackup.backup(opts)
+      assert File.exists?(custom_backup_file)
 
       custom_backup_file = Path.join(backup_dir, "custom_backup_fn.db")
       fun = fn _repo, _repo_config -> custom_backup_file end
-      opts = Map.put(opts, :backup_file, fun)
-      assert {:ok, [{:ok, TestRepo, backup_file}]} = EctoBackup.backup(opts)
-      assert backup_file == custom_backup_file
-      assert File.exists?(backup_file)
+      opts = Map.put(opts_base, :backup_file, fun)
+      assert {:ok, [{:ok, TestRepo, ^custom_backup_file}]} = EctoBackup.backup(opts)
+      assert File.exists?(custom_backup_file)
 
       custom_backup_file = Path.join(backup_dir, "custom_backup_mfa.db")
-      opts = %{opts | backup_file: {__MODULE__, :custom_backup_file, [custom_backup_file]}}
-      assert {:ok, [{:ok, TestRepo, backup_file}]} = EctoBackup.backup(opts)
-      assert backup_file == custom_backup_file
-      assert File.exists?(backup_file)
+      mfa = {__MODULE__, :custom_backup_file, [custom_backup_file]}
+      opts = Map.put(opts_base, :backup_file, mfa)
+      assert {:ok, [{:ok, TestRepo, ^custom_backup_file}]} = EctoBackup.backup(opts)
+      assert File.exists?(custom_backup_file)
     end
 
     test "can backup with custom backup_dir" do
@@ -87,7 +104,7 @@ defmodule EctoBackupTest do
       assert e.reason == :no_backup_dir_set
     end
 
-    test "returns error for invalid repos configurations" do
+    test "returns error for invalid backup repos configurations" do
       assert {:error, e} = EctoBackup.backup(repos: [])
       assert e.reason == :no_repos_to_backup
       assert {:error, e} = EctoBackup.backup()
@@ -131,20 +148,38 @@ defmodule EctoBackupTest do
     test "returns error for invalid backup_file" do
       opts = %{repos: [{TestRepo, [adapter: StubAdapter]}]}
 
-      custom_backup_file = :invalid_backup_file
-      opts = Map.put(opts, :backup_file, custom_backup_file)
+      opts = Map.put(opts, :backup_file, :not_a_binary)
       assert {:error, e} = EctoBackup.backup(opts)
       assert e.reason == :invalid_backup_file
 
-      custom_backup_file = fn _repo, _repo_config -> :invalid_backup_file end
-      opts = Map.put(opts, :backup_file, custom_backup_file)
+      fun = fn _repo, _repo_config -> :not_a_binary end
+      opts = Map.put(opts, :backup_file, fun)
       assert {:error, e} = EctoBackup.backup(opts)
       assert e.reason == :invalid_backup_file
 
-      custom_backup_file = {__MODULE__, :custom_backup_file, [:invalid_backup_file]}
-      opts = Map.put(opts, :backup_file, custom_backup_file)
+      mfa = {__MODULE__, :custom_backup_file, [:not_a_binary]}
+      opts = Map.put(opts, :backup_file, mfa)
       assert {:error, e} = EctoBackup.backup(opts)
       assert e.reason == :invalid_backup_file
+    end
+
+    test "returns error for mismatched repos and files lists" do
+      opts = %{
+        repos: [
+          {TestRepo, [adapter: StubAdapter]},
+          {SecondTestRepo, [adapter: StubAdapter]}
+        ],
+        files: ["single_backup_file.db"]
+      }
+
+      assert {:error, e} = EctoBackup.backup(opts)
+      assert e.reason == :mismatched_backup_file_count
+    end
+
+    test "returns error for invalid backup file list" do
+      opts = %{repos: [{TestRepo, [adapter: StubAdapter]}], files: [:invalid_file]}
+      assert {:error, e} = EctoBackup.backup(opts)
+      assert e.reason == :invalid_backup_file_list
     end
 
     test "returns error for invalid backup_dir" do
@@ -219,86 +254,259 @@ defmodule EctoBackupTest do
       {:ok, backup_dir: backup_dir, backup_file: backup_file}
     end
 
-    test "can restore using the StubAdapter", %{backup_file: backup_file} do
+    test "can restore using the StubAdapter", %{backup_dir: backup_dir, backup_file: backup_file} do
       repo_spec = {TestRepo, [adapter: StubAdapter]}
-      opts = %{repo: repo_spec, confirm: true}
-      assert {:ok, TestRepo} = EctoBackup.restore(backup_file, opts)
-      opts = %{repo: repo_spec, confirm: fn -> true end}
-      assert {:ok, TestRepo} = EctoBackup.restore(backup_file, opts)
-      opts = %{repo: repo_spec, confirm: {__MODULE__, :confirm_restore, [true]}}
-      assert {:ok, TestRepo} = EctoBackup.restore(backup_file, opts)
+
+      opts = %{repos: [repo_spec], confirm: [TestRepo], restore_dir: backup_dir}
+      assert {:ok, [{:ok, TestRepo, ^backup_file}]} = EctoBackup.restore(opts)
+
+      opts = %{repos: [repo_spec], confirm: fn _, _ -> true end, restore_dir: backup_dir}
+      assert {:ok, [{:ok, TestRepo, ^backup_file}]} = EctoBackup.restore(opts)
+
+      opts = %{
+        repos: [repo_spec],
+        confirm: {__MODULE__, :confirm_restore, [true]},
+        restore_dir: backup_dir
+      }
+
+      assert {:ok, [{:ok, TestRepo, ^backup_file}]} = EctoBackup.restore(opts)
+    end
+
+    test "can restore with custom restore_file", %{backup_dir: backup_dir} do
+      # Create a custom backup file
+      custom_restore_file = Path.join(backup_dir, "custom_backup.db")
+      opts = %{repos: [{TestRepo, [adapter: StubAdapter]}], backup_file: custom_restore_file}
+      assert {:ok, [{:ok, TestRepo, ^custom_restore_file}]} = EctoBackup.backup(opts)
+
+      opts_base = %{repos: [{TestRepo, [adapter: StubAdapter]}], confirm: [TestRepo]}
+
+      opts = Map.put(opts_base, :files, [custom_restore_file])
+      assert {:ok, [{:ok, TestRepo, ^custom_restore_file}]} = EctoBackup.restore(opts)
+
+      opts = Map.put(opts_base, :restore_file, custom_restore_file)
+      assert {:ok, [{:ok, TestRepo, ^custom_restore_file}]} = EctoBackup.restore(opts)
+
+      fun = fn _repo, _repo_config -> custom_restore_file end
+      opts = Map.put(opts_base, :restore_file, fun)
+      assert {:ok, [{:ok, TestRepo, ^custom_restore_file}]} = EctoBackup.restore(opts)
+
+      mfa = {__MODULE__, :custom_restore_file, [custom_restore_file]}
+      opts = Map.put(opts_base, :restore_file, mfa)
+      assert {:ok, [{:ok, TestRepo, ^custom_restore_file}]} = EctoBackup.restore(opts)
     end
 
     test "can restore from default repo config", %{backup_file: backup_file} do
-      Application.put_env(:ecto_backup, :repos, [{TestRepo, [adapter: StubAdapter]}])
-      assert {:ok, TestRepo} = EctoBackup.restore(backup_file, confirm: true)
+      Application.put_env(:ecto_backup, :repos, [
+        {TestRepo, [adapter: StubAdapter, restore_file: backup_file]}
+      ])
+
+      assert {:ok, [{:ok, TestRepo, ^backup_file}]} = EctoBackup.restore(confirm: [TestRepo])
       Application.delete_env(:ecto_backup, :repos)
     end
 
-    test "returns error for invalid backup_file" do
-      opts = %{repo: {TestRepo, [adapter: StubAdapter]}, confirm: true}
-      assert {:error, e} = EctoBackup.restore("non_existent_file.db", opts)
-      assert e.reason == :invalid_restore_file
-      assert {:error, e} = EctoBackup.restore(:not_a_binary, opts)
-      assert e.reason == :invalid_restore_file
+    test "can restore with custom restore_dir", %{
+      backup_dir: backup_dir,
+      backup_file: backup_file
+    } do
+      opts_base = %{repos: [{TestRepo, [adapter: StubAdapter]}], confirm: [TestRepo]}
+
+      opts = Map.put(opts_base, :restore_dir, backup_dir)
+      assert {:ok, [{:ok, TestRepo, ^backup_file}]} = EctoBackup.restore(opts)
+
+      fun = fn _repo, _repo_config -> backup_dir end
+      opts = Map.put(opts, :restore_dir, fun)
+      assert {:ok, [{:ok, TestRepo, ^backup_file}]} = EctoBackup.restore(opts)
+
+      opts = %{opts | restore_dir: {__MODULE__, :custom_restore_file, [backup_dir]}}
+      assert {:ok, [{:ok, TestRepo, ^backup_file}]} = EctoBackup.restore(opts)
     end
 
-    test "returns error for invalid repos configurations" do
-      Application.put_env(:ecto_backup, :repos, [])
-      assert {:error, e} = EctoBackup.restore("some_file.db", confirm: true)
+    test "returns error when no restore_dir set" do
+      opts = %{repos: [{TestRepo, [adapter: StubAdapter]}]}
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :no_restore_dir_set
+    end
+
+    test "returns error for invalid restore repos configurations" do
+      assert {:error, e} = EctoBackup.restore(repos: [])
       assert e.reason == :no_repos_to_restore
-      Application.put_env(:ecto_backup, :repos, [TestRepo, SecondTestRepo])
-      assert {:error, e} = EctoBackup.restore("some_file.db", confirm: true)
-      assert e.reason == :multiple_repos_to_restore
-      Application.delete_env(:ecto_backup, :repos)
-      assert {:error, e} = EctoBackup.restore("some_file.db", confirm: true)
+      assert {:error, e} = EctoBackup.restore()
       assert e.reason == :no_default_repos
+      assert {:error, e} = EctoBackup.restore(repos: :invalid)
+      assert e.reason == :invalid_repo_list
+      Application.put_env(:ecto_backup, :repos, [])
+      assert {:error, e} = EctoBackup.restore()
+      assert e.reason == :no_repos_to_restore
+      Application.put_env(:ecto_backup, :repos, :invalid)
+      assert {:error, e} = EctoBackup.restore()
+      assert e.reason == :invalid_repo_list
+      Application.delete_env(:ecto_backup, :repos)
+    end
+
+    test "returns error for invalid restore_file" do
+      opts = %{repos: [{TestRepo, [adapter: StubAdapter]}], confirm: [TestRepo]}
+
+      opts = Map.put(opts, :restore_file, "non_existent_file.db")
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :nonexistent_restore_file
+
+      opts = Map.put(opts, :restore_file, :not_a_binary)
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :invalid_restore_file
+
+      fun = fn _repo, _repo_config -> :not_a_binary end
+      opts = Map.put(opts, :restore_file, fun)
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :invalid_restore_file
+
+      mfa = {__MODULE__, :custom_restore_file, [:not_a_binary]}
+      opts = Map.put(opts, :restore_file, mfa)
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :invalid_restore_file
+    end
+
+    test "returns error for invalid timestamp in restore file name" do
+      # Create a new backup dir, backup to a file, then rename it to an invalid timestamp
+      backup_dir = StubAdapter.create_backup_dir!()
+      opts = %{repos: [{TestRepo, [adapter: StubAdapter]}], backup_dir: backup_dir}
+      {:ok, [{:ok, TestRepo, backup_file}]} = EctoBackup.backup(opts)
+
+      invalid_restore_name = "ecto_backup_test_repo_backup_2025-01-01T12-34-61Z.db"
+      invalid_restore_file = Path.join(backup_dir, invalid_restore_name)
+      File.rename!(backup_file, invalid_restore_file)
+
+      opts = %{
+        repos: [{TestRepo, [adapter: StubAdapter]}],
+        confirm: [TestRepo],
+        restore_dir: backup_dir
+      }
+
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :invalid_restore_file_timestamp
+    end
+
+    test "returns error for invalid repos configurations", %{backup_dir: backup_dir} do
+      Application.put_env(:ecto_backup, :restore_dir, backup_dir)
+      Application.put_env(:ecto_backup, :repos, [])
+
+      assert {:error, e} = EctoBackup.restore()
+      assert e.reason == :no_repos_to_restore
+
+      Application.delete_env(:ecto_backup, :repos)
+      assert {:error, e} = EctoBackup.restore()
+      assert e.reason == :no_default_repos
+
+      Application.delete_env(:ecto_backup, :restore_dir)
     end
 
     test "returns error when confirmation fails", %{backup_file: backup_file} do
-      repo_spec = {TestRepo, [adapter: StubAdapter]}
-      opts = %{repo: repo_spec}
-      assert {:error, e} = EctoBackup.restore(backup_file, opts)
+      repo_spec = {TestRepo, [adapter: StubAdapter, restore_file: backup_file]}
+
+      opts = %{repos: [repo_spec]}
+      assert {:error, e} = EctoBackup.restore(opts)
       assert e.reason == :missing_restore_confirmation
-      opts = %{repo: repo_spec, confirm: false}
-      assert {:error, e} = EctoBackup.restore(backup_file, opts)
+
+      opts = %{repos: [repo_spec], confirm: false}
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :missing_restore_confirmation
+
+      opts = %{repos: [repo_spec], confirm: []}
+      assert {:error, e} = EctoBackup.restore(opts)
       assert e.reason == :restore_not_confirmed
-      opts = %{repo: repo_spec, confirm: fn -> false end}
-      assert {:error, e} = EctoBackup.restore(backup_file, opts)
+
+      opts = %{repos: [repo_spec], confirm: fn _, _ -> false end}
+      assert {:error, e} = EctoBackup.restore(opts)
       assert e.reason == :restore_not_confirmed
-      opts = %{repo: repo_spec, confirm: fn -> :invalid end}
-      assert {:error, e} = EctoBackup.restore(backup_file, opts)
+
+      opts = %{repos: [repo_spec], confirm: fn _, _ -> :invalid end}
+      assert {:error, e} = EctoBackup.restore(opts)
       assert e.reason == :invalid_confirm_function_result
-      opts = %{repo: repo_spec, confirm: {__MODULE__, :confirm_restore, [false]}}
-      assert {:error, e} = EctoBackup.restore(backup_file, opts)
+
+      opts = %{repos: [repo_spec], confirm: {__MODULE__, :confirm_restore, [false]}}
+      assert {:error, e} = EctoBackup.restore(opts)
       assert e.reason == :restore_not_confirmed
-      opts = %{repo: repo_spec, confirm: {__MODULE__, :confirm_restore, [:invalid]}}
-      assert {:error, e} = EctoBackup.restore(backup_file, opts)
+
+      opts = %{repos: [repo_spec], confirm: {__MODULE__, :confirm_restore, [:invalid]}}
+      assert {:error, e} = EctoBackup.restore(opts)
       assert e.reason == :invalid_confirm_function_result
-      Application.put_env(:ecto_backup, :repos, [{TestRepo, [adapter: StubAdapter]}])
-      assert {:error, e} = EctoBackup.restore(backup_file)
+
+      Application.put_env(:ecto_backup, :repos, [
+        {TestRepo, [adapter: StubAdapter, restore_file: backup_file]}
+      ])
+
+      assert {:error, e} = EctoBackup.restore()
       assert e.reason == :missing_restore_confirmation
       Application.delete_env(:ecto_backup, :repos)
     end
 
     test "returns error for invalid adapter", %{backup_file: backup_file} do
-      opts = %{repo: TestRepo, confirm: true}
-      assert {:error, TestRepo, e} = EctoBackup.restore(backup_file, opts)
+      opts = %{repos: [{TestRepo, [restore_file: backup_file]}], confirm: [TestRepo]}
+      assert {:ok, [{:error, TestRepo, e}]} = EctoBackup.restore(opts)
       assert e.reason == :unsupported_ecto_adapter
     end
 
-    test "returns error when restore fails in adapter" do
-      opts = %{repo: {TestRepo, [adapter: StubAdapter]}, confirm: true}
-      assert {:error, e} = EctoBackup.restore("invalid_restore_file.db", opts)
-      assert e.reason == :invalid_restore_file
+    test "returns error when restore fails in adapter", %{backup_dir: backup_dir} do
+      invalid_file = Path.join(backup_dir, "invalid_restore_file.db")
+      File.write!(invalid_file, "invalid data")
+
+      opts = %{
+        repos: [{TestRepo, [adapter: StubAdapter, restore_file: invalid_file]}],
+        confirm: [TestRepo]
+      }
+
+      assert {:ok, [{:error, TestRepo, e}]} = EctoBackup.restore(opts)
+      assert e.reason == :invalid_backup_data
     end
 
-    test "returns error from adapter", %{backup_dir: backup_dir} do
-      invalid = Path.join(backup_dir, "invalid_backup.db")
-      File.write!(invalid, "invalid data")
-      opts = %{repo: {TestRepo, [adapter: StubAdapter]}, confirm: true}
-      assert {:error, TestRepo, e} = EctoBackup.restore(invalid, opts)
-      assert e.reason == :invalid_backup_data
+    test "returns error for mismatched repos and files lists" do
+      opts = %{
+        repos: [
+          {TestRepo, [adapter: StubAdapter]},
+          {SecondTestRepo, [adapter: StubAdapter]}
+        ],
+        files: ["single_backup_file.db"]
+      }
+
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :mismatched_restore_file_count
+    end
+
+    test "returns error for invalid restore file list" do
+      opts = %{repos: [{TestRepo, [adapter: StubAdapter]}], files: [:invalid_file]}
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :invalid_restore_file_list
+    end
+
+    test "returns error for invalid restore_dir" do
+      opts = %{repos: [{TestRepo, [adapter: StubAdapter]}], confirm: [TestRepo]}
+
+      custom_restore_dir = :invalid_restore_dir
+      opts = Map.put(opts, :restore_dir, custom_restore_dir)
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :invalid_restore_dir
+
+      custom_restore_dir = fn _repo, _repo_config -> :invalid_restore_dir end
+      opts = Map.put(opts, :restore_dir, custom_restore_dir)
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :invalid_restore_dir
+
+      custom_restore_dir = {__MODULE__, :custom_backup_file, [:invalid_restore_dir]}
+      opts = Map.put(opts, :restore_dir, custom_restore_dir)
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :invalid_restore_dir
+    end
+
+    test "returns error when no restore_file found" do
+      empty_restore_dir = StubAdapter.create_backup_dir!()
+
+      opts = %{
+        repos: [{TestRepo, [adapter: StubAdapter]}],
+        restore_dir: empty_restore_dir,
+        confirm: [TestRepo]
+      }
+
+      assert {:error, e} = EctoBackup.restore(opts)
+      assert e.reason == :no_restore_file_found
     end
   end
 
@@ -316,37 +524,48 @@ defmodule EctoBackupTest do
     end
 
     test "can restore using the StubAdapter", %{backup_file: backup_file} do
-      repo_spec = {TestRepo, [adapter: StubAdapter]}
-      assert TestRepo = EctoBackup.restore!(backup_file, repo: repo_spec, confirm: true)
+      repo_spec = {TestRepo, [adapter: StubAdapter, restore_file: backup_file]}
+
+      assert [{:ok, TestRepo, ^backup_file}] =
+               EctoBackup.restore!(repos: [repo_spec], confirm: [TestRepo])
     end
 
     test "can restore from default repo config", %{backup_file: backup_file} do
-      Application.put_env(:ecto_backup, :repos, [{TestRepo, [adapter: StubAdapter]}])
-      assert TestRepo = EctoBackup.restore!(backup_file, confirm: true)
+      Application.put_env(:ecto_backup, :repos, [
+        {TestRepo, [adapter: StubAdapter, restore_file: backup_file]}
+      ])
+
+      assert [{:ok, TestRepo, ^backup_file}] = EctoBackup.restore!(confirm: [TestRepo])
       Application.delete_env(:ecto_backup, :repos)
     end
 
     test "raises for restore errors", %{backup_file: backup_file, invalid_file: invalid_file} do
-      repo_spec = {TestRepo, [adapter: StubAdapter]}
+      repo_spec = {TestRepo, [adapter: StubAdapter, restore_file: backup_file]}
 
       assert_raise EctoBackup.Error, fn ->
-        EctoBackup.restore!(backup_file, repo: repo_spec)
+        EctoBackup.restore!(repos: [repo_spec])
       end
 
-      Application.put_env(:ecto_backup, :repos, [{TestRepo, [adapter: StubAdapter]}])
+      Application.put_env(:ecto_backup, :repos, [
+        {TestRepo, [adapter: StubAdapter, restore_file: backup_file]}
+      ])
 
       assert_raise EctoBackup.Error, fn ->
-        EctoBackup.restore!(backup_file)
+        EctoBackup.restore!()
       end
 
       Application.delete_env(:ecto_backup, :repos)
 
       assert_raise EctoBackup.Error, fn ->
-        EctoBackup.restore!("non_existent_file.db", repo: repo_spec, confirm: true)
+        EctoBackup.restore!(
+          repos: [repo_spec],
+          restore_file: "non_existent_file.db",
+          confirm: [TestRepo]
+        )
       end
 
       assert_raise EctoBackup.Error, fn ->
-        EctoBackup.restore!(invalid_file, repo: repo_spec, confirm: true)
+        EctoBackup.restore!(repos: [repo_spec], restore_file: invalid_file, confirm: [TestRepo])
       end
     end
   end

@@ -11,6 +11,12 @@ defmodule EctoBackup.Adapters.PostgresTest do
   # Note: We purposefully call `EctoBackup.backup/1` and `EctoBackup.restore/2` in these tests to
   #       fully exercise the Postgres adapter in an integration-style test.
 
+  def create_backup_file(%{backup_dir: backup_dir}) do
+    opts = [repos: [TestPGRepo], backup_dir: backup_dir]
+    {:ok, [{:ok, _repo, backup_file}]} = EctoBackup.backup(opts)
+    {:ok, backup_file: backup_file}
+  end
+
   setup_all do
     # Create test database for all tests in this module
     TestPGRepo.create_db()
@@ -72,58 +78,84 @@ defmodule EctoBackup.Adapters.PostgresTest do
     end
   end
 
-  def create_backup_file(%{backup_dir: backup_dir}) do
-    opts = [repos: [TestPGRepo], backup_dir: backup_dir]
-    {:ok, [{:ok, _repo, backup_file}]} = EctoBackup.backup(opts)
-    {:ok, backup_file: backup_file}
-  end
-
   describe "EctoBackup.restore/1 with Postgres adapter" do
     setup :create_backup_file
 
     test "can restore a postgres repo", %{backup_file: backup_file} do
-      restore_opts = [repo: TestPGRepo, confirm: true]
-      assert {:ok, TestPGRepo} = EctoBackup.restore(backup_file, restore_opts)
+      restore_opts = [repos: [TestPGRepo], files: [backup_file], confirm: [TestPGRepo]]
+      assert {:ok, [{:ok, TestPGRepo, ^backup_file}]} = EctoBackup.restore(restore_opts)
     end
 
     test "returns error for invalid restore file" do
       restore_file = Temp.path!()
       File.write!(restore_file, "invalid content")
-      restore_opts = [repo: TestPGRepo, confirm: true]
-      assert {:error, TestPGRepo, e} = EctoBackup.restore(restore_file, restore_opts)
+      restore_opts = [repos: [TestPGRepo], files: [restore_file], confirm: [TestPGRepo]]
+      assert {:ok, [{:error, TestPGRepo, e}]} = EctoBackup.restore(restore_opts)
       assert e.reason == :pg_restore_list_failed
     end
 
     test "returns error for invalid pg_restore cmd", %{backup_file: backup_file} do
-      restore_opts = [repo: TestPGRepo, confirm: true, pg_restore_cmd: "invalid_pg_restore_cmd"]
-      assert {:error, TestPGRepo, e} = EctoBackup.restore(backup_file, restore_opts)
+      restore_opts = [
+        repos: [TestPGRepo],
+        files: [backup_file],
+        confirm: [TestPGRepo],
+        pg_restore_cmd: "invalid_pg_restore_cmd"
+      ]
+
+      assert {:ok, [{:error, TestPGRepo, e}]} = EctoBackup.restore(restore_opts)
       assert e.reason == :pg_restore_cmd_not_found
     end
 
     test "returns error when pg_restore fails", %{backup_file: backup_file} do
       # Use an invalid pg_restore argument to force it to fail
-      restore_opts = [repo: TestPGRepo, confirm: true, pg_restore_args: ["--blowup"]]
-      assert {:error, TestPGRepo, e} = EctoBackup.restore(backup_file, restore_opts)
+      restore_opts = [
+        repos: [TestPGRepo],
+        files: [backup_file],
+        confirm: [TestPGRepo],
+        pg_restore_args: ["--blowup"]
+      ]
+
+      assert {:ok, [{:error, TestPGRepo, e}]} = EctoBackup.restore(restore_opts)
       assert e.reason == :pg_restore_failed
     end
 
     test "returns error for invalid password", %{backup_file: backup_file} do
-      restore_opts = [repo: {TestPGRepo, [password: nil]}, confirm: true]
-      assert {:error, TestPGRepo, e} = EctoBackup.restore(backup_file, restore_opts)
+      restore_opts = [
+        repos: [{TestPGRepo, [password: nil]}],
+        files: [backup_file],
+        confirm: [TestPGRepo]
+      ]
+
+      assert {:ok, [{:error, TestPGRepo, e}]} = EctoBackup.restore(restore_opts)
       assert e.reason == :pg_restore_failed
 
-      restore_opts = [repo: {TestPGRepo, [password: ""]}, confirm: true]
-      assert {:error, TestPGRepo, e} = EctoBackup.restore(backup_file, restore_opts)
+      restore_opts = [
+        repos: [{TestPGRepo, [password: ""]}],
+        files: [backup_file],
+        confirm: [TestPGRepo]
+      ]
+
+      assert {:ok, [{:error, TestPGRepo, e}]} = EctoBackup.restore(restore_opts)
       assert e.reason == :pg_restore_failed
 
-      restore_opts = [repo: {TestPGRepo, [password: "invalid"]}, confirm: true]
-      assert {:error, TestPGRepo, e} = EctoBackup.restore(backup_file, restore_opts)
+      restore_opts = [
+        repos: [{TestPGRepo, [password: "invalid"]}],
+        files: [backup_file],
+        confirm: [TestPGRepo]
+      ]
+
+      assert {:ok, [{:error, TestPGRepo, e}]} = EctoBackup.restore(restore_opts)
       assert e.reason == :pg_restore_failed
     end
 
     test "returns error for invalid password value", %{backup_file: backup_file} do
-      restore_opts = [repo: {TestPGRepo, [password: :invalid]}, confirm: true]
-      assert {:error, TestPGRepo, e} = EctoBackup.restore(backup_file, restore_opts)
+      restore_opts = [
+        repos: [{TestPGRepo, [password: :invalid]}],
+        files: [backup_file],
+        confirm: [TestPGRepo]
+      ]
+
+      assert {:ok, [{:error, TestPGRepo, e}]} = EctoBackup.restore(restore_opts)
       assert e.reason == :invalid_password_value
     end
   end

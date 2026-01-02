@@ -8,6 +8,9 @@ defmodule EctoBackup.Adapters.Postgres do
   server to the local machine, and restores will be transferred from the local machine to the
   database server, so plan accordingly for remote databases.
 
+  Progress during backup and restore operations is reported based on the number of tables dumped
+  or restored, so large tables may cause progress to appear to stall for a period of time.
+
   The `pg_dump` and `pg_restore` commands will be configured to connect to the database using the
   provided repository configurations as explained in the [Individual Repo
   Configuration](#module-individual-repo-configuration) section of the main `EctoBackup` module
@@ -23,35 +26,51 @@ defmodule EctoBackup.Adapters.Postgres do
   Additional repo configuration options supported by this adapter:
 
     - `:pg_dump_cmd` - The command to use for `pg_dump`. Defaults to `"pg_dump"`.
+
     - `:pg_dump_args` - A list of arguments to pass to `pg_dump`. Defaults to `["--verbose",
       "--format=c", "--no-owner"]`. See the note below on default arguments.
+
     - `:pg_restore_cmd` - The command to use for `pg_restore`. Defaults to `"pg_restore"`.
+
     - `:pg_restore_args` - A list of arguments to pass to `pg_restore`. Defaults to `["--verbose",
       "--clean", "--no-owner", "--no-acl"]`. See the note below on default arguments.
 
   ## A note on default arguments
     - The `--verbose` argument is required for progress and feedback during backup and restore
       operations.
+
     - The `--format=c` argument for `pg_dump` creates a custom-format dump file, which is the most
       flexible format, and compressed by default.
+
     - The `--no-owner` argument prevents ownership information from being included in the dump,
       which can be useful when restoring to a different database or user.
+
     - The `--clean` argument for `pg_restore` ensures that existing database objects are dropped
       before being recreated from the dump.
+
     - The `--no-acl` argument prevents access control lists from being restored, which can help
       avoid permission issues during restore.
 
   ## Telemetry Events
+
   During backup and restore operations, the following telemetry events are emitted:
 
     - `[:ecto_backup, :backup, :repo, :progress]` - Emitted periodically during backup to report
       progress. Due to how `pg_dump` works, this is emitted when dumping each table. Progress may
-      appear to stall for large tables. Measurements include `:completed`, `:total`, and
-      `:percent`. Metadata includes `:repo` and `:subject` (table name if applicable).
+      appear to stall for large tables. Measurements include `:completed` and `:total`. Metadata
+      includes `:repo` and `:subject` (table name if applicable).
+
     - `[:ecto_backup, :backup, :repo, :message]` - Emitted for informational, warning, or error
       messages from the backup process. Metadata includes `:repo`, `:level` and `:message`.
 
-  All telemetry events include the `:repo` in their metadata for context.
+    - `[:ecto_backup, :restore, :repo, :progress]` - Emitted periodically during restore to report
+      progress. Due to how `pg_restore` works, this is emitted when restoring the data of each
+      table. Progress may appear to stall for large tables. Measurements include `:completed` and
+      `:total`. Metadata includes `:repo` and `:subject` (table name if applicable).
+
+    - `[:ecto_backup, :restore, :repo, :message]` - Emitted for informational, warning, or error
+      messages from the restore process. Metadata includes `:repo`, `:level` and `:message`.
+
   """
 
   @behaviour EctoBackup.Adapter
@@ -62,10 +81,10 @@ defmodule EctoBackup.Adapters.Postgres do
   alias EctoBackup.Util
 
   @impl true
-  def backup(repo, repo_config, backup_file, options) do
+  def backup(repo, repo_config, options) do
     with(
       {:ok, cmd} <- pg_dump_cmd(repo, repo_config, options),
-      {:ok, args} <- pg_dump_args(repo, repo_config, backup_file, options),
+      {:ok, args} <- pg_dump_args(repo, repo_config, options),
       {:ok, env} <- pg_env(repo, repo_config),
       {:ok, env} <- create_pgpass_file(repo, env, repo_config),
       {:ok, table_count} <- get_table_count(repo)
@@ -79,7 +98,7 @@ defmodule EctoBackup.Adapters.Postgres do
       try do
         case Util.cmd({cmd, args}, cmd_opts) do
           {_, 0} ->
-            {:ok, backup_file}
+            {:ok, repo_config[:backup_file]}
 
           {output, exit_status} ->
             {:error,
@@ -97,13 +116,13 @@ defmodule EctoBackup.Adapters.Postgres do
   end
 
   @impl true
-  def restore(repo, repo_config, restore_file, options) do
+  def restore(repo, repo_config, options) do
     with(
       {:ok, cmd} <- pg_restore_cmd(repo, repo_config, options),
-      {:ok, args} <- pg_restore_args(repo, repo_config, restore_file, options),
+      {:ok, args} <- pg_restore_args(repo, repo_config, options),
       {:ok, env} <- pg_env(repo, repo_config),
       {:ok, env} <- create_pgpass_file(repo, env, repo_config),
-      {:ok, tables} <- list_backup_file_tables(restore_file, pg_restore_cmd: cmd)
+      {:ok, tables} <- list_backup_file_tables(repo_config[:restore_file], pg_restore_cmd: cmd)
     ) do
       cmd_opts = [
         env: env,
@@ -114,7 +133,7 @@ defmodule EctoBackup.Adapters.Postgres do
       try do
         case Util.cmd({cmd, args}, cmd_opts) do
           {_, 0} ->
-            :ok
+            {:ok, repo_config[:restore_file]}
 
           {output, exit_status} ->
             {:error,
@@ -167,7 +186,7 @@ defmodule EctoBackup.Adapters.Postgres do
     end
   end
 
-  defp pg_dump_args(repo, repo_config, backup_file, options) do
+  defp pg_dump_args(repo, repo_config, options) do
     default_args = ["--verbose", "--format=c", "--no-owner"]
     args = Conf.get(repo_config, options, :pg_dump_args, default_args)
 
@@ -180,11 +199,11 @@ defmodule EctoBackup.Adapters.Postgres do
        )}
     else
       # Always add `--no-password` to avoid password prompt
-      {:ok, args ++ ["--no-password", "--file", backup_file]}
+      {:ok, args ++ ["--no-password", "--file", repo_config[:backup_file]]}
     end
   end
 
-  defp pg_restore_args(repo, repo_config, restore_file, options) do
+  defp pg_restore_args(repo, repo_config, options) do
     default_args = ["--verbose", "--clean", "--no-owner", "--no-acl"]
     args = Conf.get(repo_config, options, :pg_restore_args, default_args)
 
@@ -197,7 +216,8 @@ defmodule EctoBackup.Adapters.Postgres do
        )}
     else
       # Always add `--no-password` to avoid password prompt
-      {:ok, args ++ ["--no-password", "--dbname", repo_config[:database], restore_file]}
+      {:ok,
+       args ++ ["--no-password", "--dbname", repo_config[:database], repo_config[:restore_file]]}
     end
   end
 

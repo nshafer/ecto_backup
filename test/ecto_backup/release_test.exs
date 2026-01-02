@@ -74,44 +74,44 @@ defmodule EctoBackup.ReleaseTest do
     end
 
     test "successfully restores a specified repo", %{backup_file: backup_file} do
-      args = "#{backup_file} -r EctoBackup.TestRepo --confirm"
+      args = "-r EctoBackup.TestRepo -f #{backup_file} --confirm EctoBackup.TestRepo"
       EctoBackup.Release.restore(args)
-
-      assert_received {:ecto_backup_shell, :info, "Restore summary:\n" <> rest}
-      assert rest =~ "✔ EctoBackup.TestRepo: Restored successfully"
+      assert_received {:ecto_backup_shell, :info, "Restore Summary:\n" <> rest}
+      assert rest =~ "✔ EctoBackup.TestRepo: #{backup_file}"
     end
 
     test "successfully restores in quiet mode", %{backup_file: backup_file} do
-      args = "#{backup_file} -r EctoBackup.TestRepo --confirm --quiet"
+      args = "-r EctoBackup.TestRepo -f #{backup_file} --confirm EctoBackup.TestRepo --quiet"
       EctoBackup.Release.restore(args)
-
       refute_receive {:ecto_backup_shell, :info, _msg}
       refute_receive {:ecto_backup_shell, :error, _msg}
     end
 
     test "handles non existent backup file gracefully", %{backup_file: _backup_file} do
       invalid_file = "non_existent_backup_file.db"
-      args = "#{invalid_file} -r EctoBackup.TestRepo --confirm"
+      args = "-r EctoBackup.TestRepo -f #{invalid_file} --confirm EctoBackup.TestRepo"
       assert catch_exit(EctoBackup.Release.restore(args)) == {:shutdown, 1}
-
       assert_received {:ecto_backup_shell, :error, error}
-      assert error =~ "Restore file is invalid or inaccessible"
+
+      assert error =~
+               "restore file \"#{invalid_file}\" for repo EctoBackup.TestRepo " <>
+                 "does not exist or is not readable"
     end
 
     test "handles invalid backup file gracefully", %{backup_dir: backup_dir} do
       # Create an invalid backup file
       invalid_file = Path.join(backup_dir, "invalid_backup.db")
       File.write!(invalid_file, "not a valid db backup")
-
-      args = "#{invalid_file} -r EctoBackup.TestRepo --confirm"
+      args = "-r EctoBackup.TestRepo -f #{invalid_file} --confirm EctoBackup.TestRepo"
       assert catch_exit(EctoBackup.Release.restore(args)) == {:shutdown, 1}
-
-      assert_received {:ecto_backup_shell, :error, "Restore completed with errors:" <> rest}
+      assert_received {:ecto_backup_shell, :error, "Some restores completed with errors:" <> rest}
       assert rest =~ "✘ EctoBackup.TestRepo"
     end
 
     test "formats generic exceptions", %{backup_file: backup_file} do
-      args = "#{backup_file} --invalid-option -r EctoBackup.TestRepo --confirm"
+      args =
+        "-r EctoBackup.TestRepo -f #{backup_file} --invalid-option --confirm EctoBackup.TestRepo"
+
       assert catch_exit(EctoBackup.Release.restore(args)) == {:shutdown, 1}
 
       assert_received {:ecto_backup_shell, :error, error}

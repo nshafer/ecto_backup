@@ -269,7 +269,7 @@ defmodule EctoBackup.SchedulerTest do
       Logger.configure(level: old_level)
 
       assert log =~ "Backup of EctoBackup.TestRepo task failed"
-      assert log =~ "invalid backup file path"
+      assert log =~ "expected a string, got :invalid"
     end
 
     test "skips scheduling backup when node is not in allowed nodes" do

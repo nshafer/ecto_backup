@@ -77,7 +77,7 @@ defmodule EctoBackup.CLI.TelemetryTest do
       Telemetry.handle_event(
         [:ecto_backup, :backup, :repo, :start],
         %{},
-        %{repo: Repo1, repo_config: %{database: "repo1"}, backup_file: "/path/to/backup.sql"},
+        %{repo: Repo1, repo_config: %{database: "repo1", backup_file: "/path/to/backup.sql"}},
         %{}
       )
 
@@ -176,7 +176,7 @@ defmodule EctoBackup.CLI.TelemetryTest do
       Telemetry.handle_event(
         [:ecto_backup, :restore, :repo, :start],
         %{},
-        %{repo: Repo1, repo_config: %{database: "repo1"}, restore_file: "/path/to/restore.sql"},
+        %{repo: Repo1, repo_config: %{database: "repo1", restore_file: "/path/to/restore.sql"}},
         %{}
       )
 

@@ -4,15 +4,14 @@ defmodule EctoBackup do
 
   This module is the main interface for performing backup and restore operations, and is what the
   mix tasks, release tasks, and scheduled jobs use for their main functionality. As such these
-  functions are generic and provide hooks and telemetry events for those higher level interfaces
-  to build upon.
+  functions are generic and provide hooks and `m::telemetry` events for those higher level
+  interfaces to build upon.
 
   For most use cases, these functions are not used directly, but rather through the mix tasks when
   in a development environment, or through release tasks or scheduled jobs in production
   environments. See the `Mix.Tasks.EctoBackup.Backup` and `Mix.Tasks.EctoBackup.Restore` modules
-  for more information on the mix tasks. See the `EctoBackup.Release` module for release
-  information and the `Mix.Tasks.EctoBackup.Gen.Release` module for generating helper scripts for
-  releases.
+  for more information on the mix tasks. See the `Mix.Tasks.EctoBackup.Gen.Release` module for
+  generating helper scripts for releases and the `EctoBackup.Release` module for more information.
 
   > #### Warning {: .warning}
   >
@@ -25,12 +24,12 @@ defmodule EctoBackup do
 
   ## Individual Repo Configuration
 
-  Database Configuration for each repo, such as username, hostname, database, password, is
-  gathered from multiple sources, each merging with and overriding the previous one:
+  Database Configuration for each repo, such as username, hostname, database name, etc is gathered
+  from multiple sources, each merging with and overriding the previous one:
 
-    1. The configuration returned by the repo's `config/0` function. This is the base
-       configuration, and is usually defined in your project configuration files or an `init/2`
-       callback in the repo module.
+    1. The configuration for each Ecto Repo as returned by the repo's `config/0` function. This is
+       the base configuration, and is usually defined in your project configuration files or an
+       `init/2` callback in the repo module.
 
            # config/dev.exs
            config :myapp, Myapp.Repo,
@@ -41,12 +40,12 @@ defmodule EctoBackup do
 
     2. Overrides on a per-repo basis in the `:ecto_backup` application environment. This allows
        you to specify different settings for backup/restore operations without changing the main
-       repo configuration.
+       repo configuration for Ecto.
 
            # config/prod.exs
            config :ecto_backup, MyApp.Repo,
              username: "backup_user",
-             adapter: EctoBackup.Adapters.Postgres
+             adapter: MyCustomBackupAdapter
 
     3. Options provided directly when invoking backup/restore functions. See `backup/1` and
        `restore/1` for details.
@@ -64,13 +63,14 @@ defmodule EctoBackup do
   `:password`, and `:hostname` are also needed. Other adapter-specific options may also be given,
   such as `:port`, `:socket`, or SSL options.
 
-  Additionally, EctoBackup specific options can be set in the same way, such as:
+  Additionally, EctoBackup specific options can be set in the same way. See `backup/1` and
+  `restore/1` for details on the options that can be set per-repo for those operations. There are
+  also specific options for `EctoBackup.Scheduler` if using scheduled backups.
 
-    - `:backup_file` to specify exactly what file to write to. Can be a string, 2-arity function
-      that takes the repo and repo_config and returns a string, or a MFA tuple to a function that
-      takes args prepended with the repo and repo_config and returns a string.
+  Global options:
+
     - `:adapter` to specify which backup adapter to use instead of auto-detecting from the repo's
-      adapter.
+      adapter. This must be a module that implements the `EctoBackup.Adapter` behaviour.
 
   """
 
@@ -78,6 +78,7 @@ defmodule EctoBackup do
   alias EctoBackup.Util
 
   @type backup_result :: {:ok, String.t()} | {:error, term()}
+  @type restore_result :: {:ok, String.t()} | {:error, term()}
 
   @doc """
   Initiates a backup of one or more Ecto repositories.
@@ -92,7 +93,7 @@ defmodule EctoBackup do
   in the results. Each result in the list will be either `{:ok, repo, backup_file}` or `{:error,
   repo, reason}` depending on whether that specific repo backup succeeded or failed.
 
-  Returns `{:error, reason}` where `reason` is a `EctoBackup.Error` or `EctoBackup.ConfError` on
+  Returns `{:error, reason}` where `reason` is an `EctoBackup.Error` or `EctoBackup.ConfError` on
   any general errors that prevent backups from being attempted.
 
   ## Options
@@ -100,14 +101,22 @@ defmodule EctoBackup do
     - `:repos` - A list of repositories to back up. This may be a list of module names, or a list
       of `{repo, repo_options}` tuples to override options for specific repos. See the [Individual
       Repo Configuration](`EctoBackup#module-individual-repo-configuration`) section for more
-      details. If not provided, the default repositories from the application configuration will
+      details. If not provided, the default `:ecto_repos` from the application configuration will
       be used.
 
+    - `:files` - A list of backup files to back up to, corresponding to the repos in `:repos`.
+      This must be a list of strings. If provided, the length of this list must match the length
+      of the `:repos` list. If not provided, backup files will be determined based on the
+      individual repo `:backup_file` options if specified, otherwise a default filename will be
+      constructed and stored in the `:backup_dir`.
+
     - `:backup_dir` - The directory where backup files will be stored if not individually
-      specified. This directory must exist and be writable before calling this function. Can be a
-      string, 2-arity function that takes `repo` and `repo_config` and returns a string, or a MFA
-      tuple to a function that takes args prepended with the `repo` and `repo_config` and returns
-      a string.
+      specified in `:repos` or global config. This is required if individual `:backup_file` repo
+      options are not provided for all repos. If a specific `:backup_file` is not provided for a
+      repo, a default filename will be constructed using the current timestamp and the repo name
+      and stored in this directory, which must exist and be writable. Can be a string, 2-arity
+      function that takes `repo` and `repo_config` and returns a string, or an MFA tuple to a
+      function that takes args prepended with the `repo` and `repo_config` and returns a string.
 
     - Other options may be provided which will be passed to the adapter's backup function. See the
       documentation for the specific adapter being used for more details on supported options.
@@ -142,54 +151,58 @@ defmodule EctoBackup do
 
       config :ecto_backup, MyApp.Repo,
         username: "backup_user",
-        adapter: CustomBackupAdapter
+        adapter: CustomEctoBackupAdapter
 
       config :ecto_backup, MyApp.AnotherRepo,
         backup_dir: "/mnt/backup_drive/myapp"
 
   ## Telemetry Events
 
-  During backup and restore operations, the following telemetry events are emitted:
+  During backup the following `m::telemetry` events are emitted:
 
-    - `[:ecto_backup, :backup, :start]` - Emitted at the start of a backup operation.
+    - `[:ecto_backup, :backup, :start]` - Emitted at the start of the entire backup operation.
+      Metadata includes a `repos` list, which is a list of 2-tuples of `{repo, repo_config}` for
+      each repo being backed up, and the `options` provided for the overall backup operation.
 
-    - `[:ecto_backup, :backup, :stop]` - Emitted at the end of a backup operation, includes
-      `:duration` in measurements and the `:result` in metadata.
+    - `[:ecto_backup, :backup, :stop]` - Emitted at the end of the entire backup operation.
+      Measurements includes `:duration`. Metadata includes everything in the `:start` event plus
+      the `:results` list.
 
     - `[:ecto_backup, :backup, :exception]` - Emitted if an unhandled exception occurs during the
       backup operation. Metadata includes everything in the `:start` event plus `:kind`,
       `:reason`, and `:stacktrace`. Measurements includes `:duration` but no `:result`.
 
-    - `[:ecto_backup, :backup, :repo, :start]` - Emitted at the start of a repo-specific backup
-      operation. Includes the `:repo`, `:repo_config`, and `:backup_file` in metadata.
+    - `[:ecto_backup, :backup, :repo, :start]` - Emitted at the start of each repo backup
+      operation. Metadata includes the `:repo` and `:repo_config`, and `:options`. The
+      `:backup_file` is available in the `:repo_config`.
 
-    - `[:ecto_backup, :backup, :repo, :stop]` - Emitted at the end of a repo-specific backup
-      operation. Includes the `:repo`, `:repo_config`, `:backup_file`, and `:result` in metadata.
+    - `[:ecto_backup, :backup, :repo, :stop]` - Emitted at the end of each repo backup operation.
+      Metadata includes everything in the `:start` event plus the `:result` for this repo.
 
     - `[:ecto_backup, :backup, :repo, :exception]` - Emitted if an unhandled exception occurs
       during a repo-specific backup operation. Metadata includes everything in the `:start` event
       plus `:kind`, `:reason`, and `:stacktrace`. Measurements includes `:duration` but no
       `:result`.
 
-  Additional telemetry events may be emitted by specific adapters during their operations such as
-  the recommend `[:ecto_backup, :backup, :repo, :message]` and `[:ecto_backup, :backup, :repo,
-  :progress]` events in `EctoBackup.Adapter`.
+  Additional `m::telemetry` events may be emitted by specific adapters during their operations
+  such as the recommend `[:ecto_backup, :backup, :repo, :message]` and `[:ecto_backup, :backup,
+  :repo, :progress]` events in `EctoBackup.Adapter`.
   """
   @spec backup(keyword() | map()) :: {:ok, [backup_result()]} | {:error, term()}
   def backup(opts \\ %{}) do
     options = Map.new(opts)
 
     with(
-      {:ok, repo_specs} <- Util.get_repo_specs(options),
-      {:ok, repo_configs} <- Util.get_repo_configs(repo_specs),
-      {:ok, backup_files} <- Util.get_backup_files(repo_configs, options)
+      {:ok, repo_specs} <- Util.get_repo_specs(:backup, options),
+      {:ok, repo_configs} <- Util.get_repo_configs(:backup, repo_specs),
+      {:ok, repo_configs} <- Util.get_backup_files(repo_configs, options)
     ) do
       metadata = %{repos: repo_configs, options: options}
 
       :telemetry.span([:ecto_backup, :backup], metadata, fn ->
         results =
-          for {{repo, repo_config}, backup_file} <- Enum.zip(repo_configs, backup_files) do
-            do_repo_backup(repo, repo_config, backup_file, options)
+          for {repo, repo_config} <- repo_configs do
+            do_repo_backup(repo, repo_config, options)
           end
 
         {{:ok, results}, Map.put(metadata, :results, results)}
@@ -197,12 +210,12 @@ defmodule EctoBackup do
     end
   end
 
-  defp do_repo_backup(repo, repo_config, backup_file, options) do
-    metadata = %{repo: repo, repo_config: repo_config, backup_file: backup_file, options: options}
+  defp do_repo_backup(repo, repo_config, options) do
+    metadata = %{repo: repo, repo_config: repo_config, options: options}
 
     :telemetry.span([:ecto_backup, :backup, :repo], metadata, fn ->
       result =
-        case Adapter.backup(repo, repo_config, backup_file, options) do
+        case Adapter.backup(repo, repo_config, options) do
           {:ok, file} -> {:ok, repo, file}
           {:error, error} -> {:error, repo, error}
         end
@@ -212,8 +225,8 @@ defmodule EctoBackup do
   end
 
   @doc """
-  Same as `backup/1`, but raises an `EctoBackup.Error` if the overall backup operation fails or
-  if any individual repo backup fails.
+  Same as `backup/1`, but raises an `EctoBackup.Error` if the overall backup operation fails or if
+  any individual repo backup fails.
 
   If any repo backup fails, an error will not be raised immediately, and all backups will still be
   attempted, then after all backups are complete, if any failed, an error will be raised.
@@ -248,100 +261,160 @@ defmodule EctoBackup do
   end
 
   @doc """
-  Restores a backup for a single Ecto repository from the specified file.
+  Initiates a restore of one or more Ecto repositories from backup files.
 
-  This will attempt to validate the configuration first, and return an error if any configuration
-  issues are found. If all configuration is valid, it will attempt to restore the repository from
-  the given backup file via the appropriate adapter.
+  This will attempt to validate the configuration first, and return an error in the form of
+  {:error, EctoBackup.ConfError{}} if any configuration issues are found. If all configuration is
+  valid, it will attempt to restore each repository in turn via the appropriate adapter, returning
+  a list of results for each repo. If any repo restore fails, the overall operation will still
+  attempt to continue to restore the remaining repos.
 
-  Returns `{:ok, repo}` on success, `{:error, reason}` on general failure or `{:error, repo,
-  reason}` if the adapter fails to restore the repo.
+  Returns `{:ok, list_of_results}` as long as any restores were attempted, but may contain errors
+  in the results. Each result in the list will be either {:ok, repo, restore_file} or {:error,
+  repo, reason} depending on whether that specific repo restore succeeded or failed.
+
+  Returns `{:error, reason}` where `reason` is an `EctoBackup.Error` or `EctoBackup.ConfError` on
+  any general errors that prevent restores from being attempted.
 
   ## Options
 
-    - `:repo` - The repository to restore. This option is required if more than one repository is
-      configured in the application environment. This may be a module name or a `{repo,
-      repo_options}` tuple. See the [Individual Repo
-      Configuration](`EctoBackup#module-individual-repo-configuration`) section for more details.
+    - `:repos` - A list of repositories to restore. This may be a list of module names, or a list
+      of `{repo, repo_options}` tuples to override options for specific repos. See the [Individual
+      Repo Configuration](`EctoBackup#module-individual-repo-configuration`) section for more
+      details. If not provided, the default `:ecto_repos` from the application configuration will
+      be used.
 
-    - `:confirm` - Must be set to `true` or a confirmation prompt function must be provided to
-      confirm the restore operation. This is to prevent accidental restores which could lead to
-      data loss. The confirmation prompt function should be a zero-arity function that returns
-      `true` to confirm or `false` to cancel, or an MFA tuple to a function that returns `true` or
-      `false`.
+    - `:files` - A list of backup files to restore from, corresponding to the repos in `:repos`.
+      This must be a list of strings. If provided, the length of this list must match the length
+      of the `:repos` list. If not provided, restore files will be determined based on the
+      individual repo `:restore_file` options if specified, otherwise the latest backup file found
+      in `:restore_dir` will be used for each repo.
+
+    - `:restore_dir` - The directory where the latest backup file will be restored from if not
+      individually specified. If not provided, defaults to the `:backup_dir` global configuration.
+      This is required if individual `:restore_file` repo options are not provided for all repos.
+      If a specific `:restore_file` is not provided for a repo, the latest backup file will be
+      located in  this directory that matches the default backup filename pattern. This directory
+      must exist and be readable before calling this function. Can be a string, 2-arity function
+      that takes `repo` and `repo_config` and returns a string, or an MFA tuple to a function that
+      takes args prepended with the `repo` and `repo_config` and returns a string.
+
+    - `:confirm` - Must be a list of repos to confirm restores for, a 2-arity function that takes
+      `repo` and `repo_config` and returns `true` to confirm or `false` to cancel, or an MFA tuple
+      to a function that takes args prepended with the `repo` and `repo_config` and returns `true`
+      or `false`. Each repo being restored will call the confirmation function to confirm the
+      restore operation before proceeding.  This is to prevent accidental restores which could
+      lead to data loss.
 
     - Other options may be provided which will be passed to the adapter's restore function. See
       the documentation for the specific adapter being used for more details on supported options.
 
   ## Examples:
 
+      # Restore default repos from application config
+      {:ok, results} = EctoBackup.restore()
+
       # Restore a specific repo from a backup file
-      EctoBackup.restore("/path/to/backup.db", repo: MyApp.Repo, confirm: true)
+      {:ok, results} = EctoBackup.restore(
+        repos: [MyApp.Repo],
+        files: ["/path/to/backup.db"],
+        confirm: [MyApp.Repo]
+      )
 
       # Restore with overridden options
       EctoBackup.restore(
-        "/path/to/backup.db",
-        repo: {MyApp.Repo,
+        repos: [{MyApp.Repo,
           username: "restore_user",
-          confirm: {MyApp.Prompts, :confirm_restore, []}}
+          restore_file: {Myapp.BackupFinder, :latest_backup_file, []}}],
+          confirm: {MyApp.Prompts, :confirm_restore, []}}]
       )
 
   ## Configuration
 
-  Unless specified with `repo`, this will attempt to get a default repository to restore from the
-  `:ecto_backup` application configuration. If more than one repository is configured, the `:repo`
-  option must be provided.
+  Typically the restore configuration is set in your application's configuration files so that the
+  various methods of invoking restores (mix tasks, release tasks) can all share the same
+  configuration. Example:
+
+      # NOTE: backup_dir is used as the default restore_dir if not explicitly set
+      config :ecto_backup,
+        repos: [MyApp.Repo, MyApp.AnotherRepo],
+        backup_dir: "/var/backups/myapp"
+
+      config :ecto_backup, MyApp.Repo,
+        username: "restore_user",
+        adapter: CustomEctoBackupAdapter
+
+      config :ecto_backup, MyApp.AnotherRepo,
+        restore_dir: "/mnt/backup_drive/myapp"
 
   ## Telemetry Events
 
-  During backup and restore operations, the following telemetry events are emitted:
+  During restore the following `m::telemetry` events are emitted:
 
-    - `[:ecto_backup, :restore, :start]` - Emitted at the start of a restore operation.
+    - `[:ecto_backup, :restore, :start]` - Emitted at the start of the entire restore operation.
+      Metadata includes a `repos` list, which is a list of 2-tuples of `{repo, repo_config}` for
+      each repo being restored, and the `options` provided for the overall restore operation.
 
-    - `[:ecto_backup, :restore, :stop]` - Emitted at the end of a restore operation, includes
-      `:duration` in measurements and the `:result` in metadata.
+    - `[:ecto_backup, :restore, :stop]` - Emitted at the end of the entire restore operation.
+      Measurements includes `:duration`. Metadata includes everything in the `:start` event plus
+      the `:results` list.
 
-    - `[:ecto_backup, :restore, :repo, :start]` - Emitted at the start of a repo-specific restore
-      operation. Includes the `:repo`, `:repo_config`, and `:restore_file` in metadata.
+    - `[:ecto_backup, :restore, :exception]` - Emitted if an unhandled exception occurs during the
+      restore operation. Metadata includes everything in the `:start` event plus `:kind`,
+      `:reason`, and `:stacktrace`. Measurements includes `:duration` but no `:result`.
 
-    - `[:ecto_backup, :restore, :repo, :stop]` - Emitted at the end of a repo-specific restore
-      operation. Includes the `:repo`, `:repo_config`, `:restore_file`, and `:result` in metadata.
+    - `[:ecto_backup, :restore, :repo, :start]` - Emitted at the start of each repo restore
+      operation. Metadata includes the `:repo` and `:repo_config`, and `:options`. The
+      `:restore_file` is available in the `:repo_config`.
 
-  Additional telemetry events may be emitted by specific adapters during their operations.
+    - `[:ecto_backup, :restore, :repo, :stop]` - Emitted at the end of each repo restore
+      operation. Metadata includes everything in the `:start` event plus the `:result` for this
+      repo.
+
+    - `[:ecto_backup, :restore, :repo, :exception]` - Emitted if an unhandled exception occurs
+      during a repo-specific restore operation. Metadata includes everything in the `:start` event
+      plus `:kind`, `:reason`, and `:stacktrace`. Measurements includes `:duration` but no
+      `:result`.
+
+  Additional `m::telemetry` events may be emitted by specific adapters during their operations
+  such as the recommend `[:ecto_backup, :restore, :repo, :message]` and `[:ecto_backup, :restore,
+  :repo, :progress]` events in `EctoBackup.Adapter`.
   """
-  @spec restore(String.t(), keyword() | map()) ::
-          {:ok, module()} | {:error, term()} | {:error, module(), term()}
-  def restore(restore_file, opts \\ %{}) do
+  @spec restore(keyword() | map()) :: {:ok, [restore_result()]} | {:error, term()}
+  def restore(opts \\ %{}) do
     options = Map.new(opts)
 
     with(
-      {:ok, repo_spec} <- Util.get_repo_spec(options),
-      {:ok, [{repo, repo_config}]} <- Util.get_repo_configs([repo_spec]),
-      {:ok, restore_file} <- Util.ensure_restore_file(restore_file),
-      :ok <- Util.ensure_restore_confirmed(repo, repo_config, options)
+      {:ok, repo_specs} <- Util.get_repo_specs(:restore, options),
+      {:ok, repo_configs} <- Util.get_repo_configs(:restore, repo_specs),
+      {:ok, repo_configs} <- Util.get_restore_files(repo_configs, options),
+      :ok <- Util.ensure_restore_files(repo_configs),
+      :ok <- Util.ensure_restores_confirmed(repo_configs, options)
     ) do
-      metadata = %{repo: {repo, repo_config}, restore_file: restore_file, options: options}
+      metadata = %{repos: repo_configs, options: options}
 
       :telemetry.span([:ecto_backup, :restore], metadata, fn ->
-        result = do_repo_restore(repo, repo_config, restore_file, options)
+        results =
+          for {repo, repo_config} <- repo_configs do
+            do_repo_restore(repo, repo_config, options)
+          end
 
-        {result, Map.put(metadata, :result, result)}
+        {{:ok, results}, Map.put(metadata, :results, results)}
       end)
     end
   end
 
-  defp do_repo_restore(repo, repo_config, restore_file, options) do
+  defp do_repo_restore(repo, repo_config, options) do
     metadata = %{
       repo: repo,
       repo_config: repo_config,
-      restore_file: restore_file,
       options: options
     }
 
     :telemetry.span([:ecto_backup, :restore, :repo], metadata, fn ->
       result =
-        case Adapter.restore(repo, repo_config, restore_file, options) do
-          :ok -> {:ok, repo}
+        case Adapter.restore(repo, repo_config, options) do
+          {:ok, file} -> {:ok, repo, file}
           {:error, error} -> {:error, repo, error}
         end
 
@@ -350,22 +423,38 @@ defmodule EctoBackup do
   end
 
   @doc """
-  Same as `restore/2`, but raises an `EctoBackup.Error` if the restore operation fails.
+  Same as `restore/2`, but raises an `EctoBackup.Error` if the overall restore operation fails or
+  if any individual repo restore fails.
 
-  Returns the restored Repo on success, or raises an error on failure.
+  If any repo restore fails, an error will not be raised immediately, and all restores will still
+  be attempted, then after all restores are complete, if any failed, an error will be raised.
+
+  Returns a list of results for each repo restore in the form `{repo, restore_file}` if all
+  restores succeeded.
   """
-  @spec restore!(String.t(), keyword() | map()) :: {:ok, module()} | {:error, module(), term()}
-  def restore!(restore_file, opts \\ %{}) do
-    case restore(restore_file, opts) do
-      {:ok, repo} ->
-        repo
+  @spec restore!(keyword() | map()) :: [restore_result()]
+  def restore!(opts \\ %{}) do
+    case restore(opts) do
+      {:ok, results} ->
+        errors =
+          Enum.filter(results, fn
+            {:error, _repo, _reason} -> true
+            _ -> false
+          end)
+
+        if errors != [] do
+          error_detail =
+            for {:error, repo, error} <- errors, into: "" do
+              "#{inspect(repo)}: #{Exception.message(error)}\n"
+            end
+
+          raise EctoBackup.Error, "One or more repository backups failed:\n" <> error_detail
+        else
+          results
+        end
 
       {:error, reason} ->
         raise EctoBackup.Error, "Restore failed: #{inspect(reason)}"
-
-      {:error, repo, reason} ->
-        raise EctoBackup.Error,
-              "Restore for #{inspect(repo)} failed: #{Exception.message(reason)}"
     end
   end
 end

@@ -29,7 +29,7 @@ defmodule EctoBackup.Release do
   """
   @spec backup(String.t()) :: :ok | {:error, term()}
   def backup(args \\ "") do
-    Application.ensure_all_started(:ecto_backup)
+    Application.ensure_all_started([:ecto_backup, :ecto_sql, :telemetry])
     options = OptionParser.split(args) |> CLI.parse_backup_args!()
     backup_opts = CLI.backup_opts_from_cli_opts(options)
 
@@ -61,13 +61,10 @@ defmodule EctoBackup.Release do
   """
   @spec restore(String.t()) :: :ok | {:error, term()}
   def restore(args \\ "") do
-    Application.ensure_all_started(:ecto_backup)
-    {options, restore_file} = OptionParser.split(args) |> CLI.parse_restore_args!()
-
-    restore_opts =
-      options
-      |> CLI.restore_opts_from_cli_opts()
-      |> Map.put_new(:confirm, {CLI, :confirm_restore, []})
+    Application.ensure_all_started([:ecto_backup, :ecto_sql, :telemetry])
+    options = OptionParser.split(args) |> CLI.parse_restore_args!()
+    restore_opts = CLI.restore_opts_from_cli_opts(options)
+    restore_opts = Map.put_new(restore_opts, :confirm, {CLI, :confirm_restore, []})
 
     if options.quiet do
       CLI.shell(CLI.Shell.Quiet)
@@ -75,15 +72,11 @@ defmodule EctoBackup.Release do
 
     CLI.attach(options)
 
-    with {:ok, repo} <- EctoBackup.restore(restore_file, restore_opts) do
-      CLI.summarize_restore_result({:ok, repo})
+    with {:ok, results} <- EctoBackup.restore(restore_opts) do
+      CLI.summarize_restore_results(results)
+      CLI.exit_if_errors(results, 1)
     else
-      {:error, reason} ->
-        CLI.fatal(reason, 1)
-
-      {:error, repo, error} ->
-        CLI.summarize_restore_result({:error, repo, error})
-        exit({:shutdown, 1})
+      {:error, reason} -> CLI.fatal(reason, 1)
     end
   rescue
     e ->
